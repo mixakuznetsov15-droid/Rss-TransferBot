@@ -1,28 +1,61 @@
 import asyncio
 import logging
+import os
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiohttp import web # Добавляем библиотеку для веб-сервера
-import os
 
-# Вставь сюда свой токен от BotFather (но лучше вынести его в переменные окружения, см. Шаг 3)
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+# Сюда мы потом вставим ID канала или твой ID, чтобы заявки приходили тебе
+ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "ТВОЙ_ID_СЮДА") 
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- Функция для простого веб-сервера (нужна для Koyeb) ---
-async def handle(request):
-    return web.Response(text="Bot is running")
-
 # --- СОСТОЯНИЯ (FSM) ---
+class FreeAgentState(StatesGroup):
+    nickname = State()
+    requirements = State()
+    destination = State()
+
+class TransferState(StatesGroup):
+    from_where = State()
+    to_where = State()
+    position = State()
+
 class ChangeNickState(StatesGroup):
     old_nick = State()
     new_nick = State()
+
+class ChangePosState(StatesGroup):
+    nickname = State()
+    old_pos = State()
+    new_pos = State()
+
+class EndCareerState(StatesGroup):
+    nickname = State()
+    reason = State()
+    position = State()
+
+class ReturnCareerState(StatesGroup):
+    nickname = State()
+    ps = State()
+
+class PauseCareerState(StatesGroup):
+    nickname = State()
+    reason = State()
+
+class FindTourState(StatesGroup):
+    club = State()
+    time = State()
+    stadium = State()
+    vip = State()
+
+class FindPlayersState(StatesGroup):
+    requirement = State()
 
 # --- МЕНЮ ---
 def get_main_menu():
@@ -44,23 +77,77 @@ def get_main_menu():
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# --- СТАРТ ---
+# --- СТАРТ И ОТМЕНА ---
 @dp.message(CommandStart())
-async def cmd_start(message: types.Message):
+async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
     await message.answer("Выбери категорию:", reply_markup=get_main_menu())
 
-# --- ОБРАБОТКА КНОПОК (заглушки) ---
-@dp.callback_query(F.data == "buy_ad")
-async def process_buy_ad(callback: types.CallbackQuery):
-    await callback.message.answer("Чтобы купить рекламу, напишите нам в ЛС и отправьте звезды.")
+@dp.message(Command("cancel"))
+async def cmd_cancel(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Действие отменено. Выбери категорию:", reply_markup=get_main_menu())
+
+# --- СВОБОДНЫЙ АГЕНТ ---
+@dp.callback_query(F.data == "free_agent")
+async def start_free_agent(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Напишите ваш никнейм (или /cancel для отмены):")
+    await state.set_state(FreeAgentState.nickname)
     await callback.answer()
 
-@dp.callback_query(F.data == "mirror")
-async def process_mirror(callback: types.CallbackQuery):
-    await callback.message.answer("Зеркало временно недоступно.")
+@dp.message(FreeAgentState.nickname)
+async def process_fa_nick(message: types.Message, state: FSMContext):
+    await state.update_data(nickname=message.text)
+    await message.answer("Напишите ваше требование:")
+    await state.set_state(FreeAgentState.requirements)
+
+@dp.message(FreeAgentState.requirements)
+async def process_fa_req(message: types.Message, state: FSMContext):
+    await state.update_data(requirements=message.text)
+    buttons = [
+        [InlineKeyboardButton(text="Клуб", callback_data="fa_dest_club")],
+        [InlineKeyboardButton(text="Сборная", callback_data="fa_dest_nat")],
+        [InlineKeyboardButton(text="Клуб или Сборная", callback_data="fa_dest_both")]
+    ]
+    await message.answer("Куда вы хотите переходить?", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await state.set_state(FreeAgentState.destination)
+
+@dp.callback_query(FreeAgentState.destination)
+async def process_fa_dest(callback: types.CallbackQuery, state: FSMContext):
+    dest_map = {"fa_dest_club": "Клуб", "fa_dest_nat": "Сборная", "fa_dest_both": "Клуб или Сборная"}
+    data = await state.get_data()
+    post_text = f"👤 **Свободный агент**\n\nНик: {data.get('nickname')}\nТребование: {data.get('requirements')}\nКуда: {dest_map.get(callback.data)}"
+    await send_application(callback.message, post_text)
+    await state.clear()
     await callback.answer()
 
-# --- СМЕНА НИКНЕЙМА (Логика) ---
+# --- ПЕРЕХОД В КЛУБ ---
+@dp.callback_query(F.data == "transfer_club")
+async def start_transfer(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Откуда переходите? (Свободный агент или название клуба):")
+    await state.set_state(TransferState.from_where)
+    await callback.answer()
+
+@dp.message(TransferState.from_where)
+async def process_tr_from(message: types.Message, state: FSMContext):
+    await state.update_data(from_where=message.text)
+    await message.answer("Куда переходите?")
+    await state.set_state(TransferState.to_where)
+
+@dp.message(TransferState.to_where)
+async def process_tr_to(message: types.Message, state: FSMContext):
+    await state.update_data(to_where=message.text)
+    await message.answer("Напишите вашу позицию:")
+    await state.set_state(TransferState.position)
+
+@dp.message(TransferState.position)
+async def process_tr_pos(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    post_text = f"⚽ **Переход в клуб**\n\nОткуда: {data.get('from_where')}\nКуда: {data.get('to_where')}\nПозиция: {message.text}"
+    await send_application(message, post_text)
+    await state.clear()
+
+# --- СМЕНА НИКНЕЙМА ---
 @dp.callback_query(F.data == "change_nick")
 async def start_change_nick(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("Напишите ваш текущий никнейм:")
@@ -68,34 +155,187 @@ async def start_change_nick(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 @dp.message(ChangeNickState.old_nick)
-async def process_old_nick(message: types.Message, state: FSMContext):
+async def process_cn_old(message: types.Message, state: FSMContext):
     await state.update_data(old_nick=message.text)
     await message.answer("Какой никнейм хотите сделать?")
     await state.set_state(ChangeNickState.new_nick)
 
 @dp.message(ChangeNickState.new_nick)
-async def process_new_nick(message: types.Message, state: FSMContext):
+async def process_cn_new(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    old_nick = data.get("old_nick")
-    new_nick = message.text
-    
-    post_text = f"🔄 **Смена никнейма**\n\nСтарый ник: {old_nick}\nНовый ник: {new_nick}"
-    
-    await message.answer(f"✅ Твоя заявка опубликована!\n\n{post_text}", parse_mode="Markdown")
+    post_text = f"🔄 **Смена никнейма**\n\nСтарый: {data.get('old_nick')}\nНовый: {message.text}"
+    await send_application(message, post_text)
     await state.clear()
+
+# --- СМЕНА ПОЗИЦИИ ---
+@dp.callback_query(F.data == "change_pos")
+async def start_change_pos(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Напишите ваш никнейм:")
+    await state.set_state(ChangePosState.nickname)
+    await callback.answer()
+
+@dp.message(ChangePosState.nickname)
+async def process_cp_nick(message: types.Message, state: FSMContext):
+    await state.update_data(nickname=message.text)
+    await message.answer("На какой позиции играли?")
+    await state.set_state(ChangePosState.old_pos)
+
+@dp.message(ChangePosState.old_pos)
+async def process_cp_old(message: types.Message, state: FSMContext):
+    await state.update_data(old_pos=message.text)
+    await message.answer("На какой позиции играете сейчас?")
+    await state.set_state(ChangePosState.new_pos)
+
+@dp.message(ChangePosState.new_pos)
+async def process_cp_new(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    post_text = f"🔄 **Смена позиции**\n\nНик: {data.get('nickname')}\nБыло: {data.get('old_pos')}\nСтало: {message.text}"
+    await send_application(message, post_text)
+    await state.clear()
+
+# --- ЗАВЕРШЕНИЕ КАРЬЕРЫ ---
+@dp.callback_query(F.data == "end_career")
+async def start_end_career(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Напишите ваш никнейм:")
+    await state.set_state(EndCareerState.nickname)
+    await callback.answer()
+
+@dp.message(EndCareerState.nickname)
+async def process_ec_nick(message: types.Message, state: FSMContext):
+    await state.update_data(nickname=message.text)
+    await message.answer("Почему решили завершить карьеру?")
+    await state.set_state(EndCareerState.reason)
+
+@dp.message(EndCareerState.reason)
+async def process_ec_reason(message: types.Message, state: FSMContext):
+    await state.update_data(reason=message.text)
+    await message.answer("На какой позиции вы играли?")
+    await state.set_state(EndCareerState.position)
+
+@dp.message(EndCareerState.position)
+async def process_ec_pos(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    post_text = f"🏁 **Завершение карьеры**\n\nНик: {data.get('nickname')}\nПричина: {data.get('reason')}\nПозиция: {message.text}"
+    await send_application(message, post_text)
+    await state.clear()
+
+# --- ВОЗВРАЩЕНИЕ КАРЬЕРЫ ---
+@dp.callback_query(F.data == "return_career")
+async def start_return_career(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Напишите ваш никнейм:")
+    await state.set_state(ReturnCareerState.nickname)
+    await callback.answer()
+
+@dp.message(ReturnCareerState.nickname)
+async def process_rc_nick(message: types.Message, state: FSMContext):
+    await state.update_data(nickname=message.text)
+    await message.answer("Напишите PS (причину возвращения):")
+    await state.set_state(ReturnCareerState.ps)
+
+@dp.message(ReturnCareerState.ps)
+async def process_rc_ps(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    post_text = f"❤️ **Возвращение карьеры**\n\nНик: {data.get('nickname')}\nPS: {message.text}"
+    await send_application(message, post_text)
+    await state.clear()
+
+# --- ПРИОСТАНОВЛЕНИЕ КАРЬЕРЫ ---
+@dp.callback_query(F.data == "pause_career")
+async def start_pause_career(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Напишите ваш никнейм:")
+    await state.set_state(PauseCareerState.nickname)
+    await callback.answer()
+
+@dp.message(PauseCareerState.nickname)
+async def process_pc_nick(message: types.Message, state: FSMContext):
+    await state.update_data(nickname=message.text)
+    await message.answer("Почему решили приостановить карьеру?")
+    await state.set_state(PauseCareerState.reason)
+
+@dp.message(PauseCareerState.reason)
+async def process_pc_reason(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    post_text = f"⏸️ **Приостановление карьеры**\n\nНик: {data.get('nickname')}\nПричина: {message.text}"
+    await send_application(message, post_text)
+    await state.clear()
+
+# --- ПОИСК ТОВЫ ---
+@dp.callback_query(F.data == "find_tour")
+async def start_find_tour(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Напишите название вашего клуба:")
+    await state.set_state(FindTourState.club)
+    await callback.answer()
+
+@dp.message(FindTourState.club)
+async def process_ft_club(message: types.Message, state: FSMContext):
+    await state.update_data(club=message.text)
+    await message.answer("Напишите время:")
+    await state.set_state(FindTourState.time)
+
+@dp.message(FindTourState.time)
+async def process_ft_time(message: types.Message, state: FSMContext):
+    await state.update_data(time=message.text)
+    await message.answer("Напишите стадион:")
+    await state.set_state(FindTourState.stadium)
+
+@dp.message(FindTourState.stadium)
+async def process_ft_stadium(message: types.Message, state: FSMContext):
+    await state.update_data(stadium=message.text)
+    await message.answer("VIP наше или ваше?")
+    await state.set_state(FindTourState.vip)
+
+@dp.message(FindTourState.vip)
+async def process_ft_vip(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    post_text = f"🏆 **Поиск товы**\n\nКлуб: {data.get('club')}\nВремя: {data.get('time')}\nСтадион: {data.get('stadium')}\nVIP: {message.text}"
+    await send_application(message, post_text)
+    await state.clear()
+
+# --- ПОИСК ИГРОКОВ ---
+@dp.callback_query(F.data == "find_players")
+async def start_find_players(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.answer("Напишите ваше требование:")
+    await state.set_state(FindPlayersState.requirement)
+    await callback.answer()
+
+@dp.message(FindPlayersState.requirement)
+async def process_fp_req(message: types.Message, state: FSMContext):
+    post_text = f"🔎 **Поиск игроков**\n\nТребование: {message.text}"
+    await send_application(message, post_text)
+    await state.clear()
+
+# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ОТПРАВКИ ---
+async def send_application(message: types.Message, text: str):
+    await message.answer(f"✅ Твоя заявка опубликована!\n\n{text}", parse_mode="Markdown")
+    # ТУТ МЫ ПОЗЖЕ ВСТАВИМ ОТПРАВКУ В КАНАЛ:
+    # try:
+    #     await bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="Markdown")
+    # except Exception as e:
+    #     logging.error(f"Не удалось отправить в канал: {e}")
+
+# --- ЗАГЛУШКИ ---
+@dp.callback_query(F.data == "buy_ad")
+async def process_buy_ad(callback: types.CallbackQuery):
+    await callback.message.answer("Чтобы купить рекламу, напишите нам в ЛС и отправьте звезды.")
+    await callback.answer()
+
+@dp.callback_query(F.data == "mirror")
+async def process_mirror(callback: types.CallbackQuery):
+    await callback.message.answer("Зеркало временно недоступно (появится позже).")
+    await callback.answer()
+
+@dp.callback_query(F.data == "support")
+async def process_support(callback: types.CallbackQuery):
+    await callback.message.answer("Техподдержка: напишите нам в ЛС.")
+    await callback.answer()
+
+@dp.callback_query()
+async def process_other(callback: types.CallbackQuery):
+    await callback.message.answer("Этот раздел находится в разработке. Скоро добавим!")
+    await callback.answer()
 
 # --- ЗАПУСК ---
 async def main():
-    # Запускаем веб-сервер для Koyeb
-    app = web.Application()
-    app.router.add_get('/', handle)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.getenv("PORT", 8080)) # Koyeb сам сообщит нам порт
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    
-    # Запускаем бота
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
