@@ -10,8 +10,7 @@ from aiohttp import web
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PORT = int(os.getenv("PORT", 8080))
-# ⚠️ СЮДА ВСТАВИМ ЧИСЛО, КОГДА УЗНАЕМ ID ГРУППЫ
-GROUP_ID = int(os.getenv("GROUP_ID", "0"))
+GROUP_ID = -1004402712685
 MODERATORS = "@tot_samiy_onet, @meelviks, @kelist1"
 
 logging.basicConfig(level=logging.INFO)
@@ -60,7 +59,7 @@ class FindTourState(StatesGroup):
 class FindPlayersState(StatesGroup):
     requirement = State()
 
-# --- МЕНЮ (убрали Зеркало и Состав ТММ) ---
+# --- МЕНЮ ---
 def get_main_menu():
     buttons = [
         [InlineKeyboardButton(text="✅ Купить рекламу", callback_data="buy_ad"),
@@ -101,21 +100,18 @@ async def send_application(message: types.Message, text: str):
     else:
         author = f"{user.full_name} (ID: {user.id})"
     
-    full_text = f"{text}\n\n👤 **Автор:** {author}"
+    full_text = f"{text}\n\n👤 **Автор:** {author}\n\n📩 **Модераторы:** {MODERATORS}"
     
-    # Кнопки для модераторов
     mod_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Принять", callback_data="mod_accept"),
          InlineKeyboardButton(text="❌ Отказать", callback_data="mod_decline")]
     ])
     
-    # Отправляем в группу
     try:
         await bot.send_message(chat_id=GROUP_ID, text=full_text, parse_mode="Markdown", reply_markup=mod_kb)
     except Exception as e:
-        logging.error(f"Ошибка отправки в группу (GROUP_ID={GROUP_ID}): {e}")
+        logging.error(f"Ошибка отправки в группу: {e}")
     
-    # Сообщение пользователю
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="back_to_menu")]
     ])
@@ -206,7 +202,7 @@ async def process_tr_pos(message: types.Message, state: FSMContext):
 # --- СМЕНА НИКНЕЙМА ---
 @dp.callback_query(F.data == "change_nick")
 async def start_change_nick(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Напишите ваш текущий никнейм:")
+    await callback.message.answer("Какой у вас никнейм был изначально?")
     await state.set_state(ChangeNickState.old_nick)
     await callback.answer()
 
@@ -233,13 +229,13 @@ async def start_change_pos(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(ChangePosState.nickname)
 async def process_cp_nick(message: types.Message, state: FSMContext):
     await state.update_data(nickname=message.text)
-    await message.answer("На какой позиции играли?")
+    await message.answer("Напишите вашу прошлую позицию:")
     await state.set_state(ChangePosState.old_pos)
 
 @dp.message(ChangePosState.old_pos)
 async def process_cp_old(message: types.Message, state: FSMContext):
     await state.update_data(old_pos=message.text)
-    await message.answer("На какой позиции играете сейчас?")
+    await message.answer("Напишите вашу нынешнюю позицию:")
     await state.set_state(ChangePosState.new_pos)
 
 @dp.message(ChangePosState.new_pos)
@@ -315,7 +311,7 @@ async def process_pc_reason(message: types.Message, state: FSMContext):
     await send_application(message, post_text)
     await state.clear()
 
-# --- ПОИСК ТОВЫ ---
+# --- ПОИСК ТОВЫ (товарищеский матч) ---
 @dp.callback_query(F.data == "find_tour")
 async def start_find_tour(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer("Напишите название вашего клуба:")
@@ -343,7 +339,7 @@ async def process_ft_stadium(message: types.Message, state: FSMContext):
 @dp.message(FindTourState.vip)
 async def process_ft_vip(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"🏆 **Поиск товы**\n\nКлуб: {data.get('club')}\nВремя: {data.get('time')}\nСтадион: {data.get('stadium')}\nVIP: {message.text}"
+    post_text = f"🏆 **Поиск товы (товарищеский матч)**\n\nКлуб: {data.get('club')}\nВремя: {data.get('time')}\nСтадион: {data.get('stadium')}\nVIP: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
@@ -360,20 +356,37 @@ async def process_fp_req(message: types.Message, state: FSMContext):
     await send_application(message, post_text)
     await state.clear()
 
-# --- ЗАГЛУШКИ ---
+# --- КУПИТЬ РЕКЛАМУ ---
 @dp.callback_query(F.data == "buy_ad")
 async def process_buy_ad(callback: types.CallbackQuery):
-    await callback.message.answer("Чтобы купить рекламу, напишите нам в ЛС и отправьте звезды.")
+    await callback.message.answer(
+        f"✅ **Купить рекламу**\n\n"
+        f"Чтобы купить рекламу, напишите модераторам в ЛС и переведите звёзды:\n\n"
+        f"📩 {MODERATORS}",
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
+# --- ТЕХПОДДЕРЖКА ---
 @dp.callback_query(F.data == "support")
 async def process_support(callback: types.CallbackQuery):
-    await callback.message.answer("Техподдержка: напишите нам в ЛС.")
+    await callback.message.answer(
+        f"🛠️ **Техподдержка**\n\n"
+        f"По всем вопросам обращайтесь к модераторам:\n\n"
+        f"📩 {MODERATORS}",
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
+# --- ЖАЛОБЫ ---
 @dp.callback_query(F.data == "complaints")
 async def process_complaints(callback: types.CallbackQuery):
-    await callback.message.answer("По жалобам напишите модераторам в ЛС.")
+    await callback.message.answer(
+        f"📢 **Жалобы**\n\n"
+        f"По жалобам обращайтесь к модераторам:\n\n"
+        f"📩 {MODERATORS}",
+        parse_mode="Markdown"
+    )
     await callback.answer()
 
 @dp.callback_query()
