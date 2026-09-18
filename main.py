@@ -10,7 +10,9 @@ from aiohttp import web
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PORT = int(os.getenv("PORT", 8080))
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "ТВОЙ_ID_СЮДА") 
+# ⚠️ СЮДА ВСТАВИМ ЧИСЛО, КОГДА УЗНАЕМ ID ГРУППЫ
+GROUP_ID = int(os.getenv("GROUP_ID", "0"))
+MODERATORS = "@tot_samiy_onet, @meelviks, @kelist1"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -58,54 +60,83 @@ class FindTourState(StatesGroup):
 class FindPlayersState(StatesGroup):
     requirement = State()
 
-# --- МЕНЮ ---
+# --- МЕНЮ (убрали Зеркало и Состав ТММ) ---
 def get_main_menu():
     buttons = [
         [InlineKeyboardButton(text="✅ Купить рекламу", callback_data="buy_ad"),
-         InlineKeyboardButton(text="🛑 Зеркало", callback_data="mirror")],
-        [InlineKeyboardButton(text="👤 Свободный агент", callback_data="free_agent"),
-         InlineKeyboardButton(text="⚽ Переход в клуб", callback_data="transfer_club")],
-        [InlineKeyboardButton(text="🔄 Смена никнейма", callback_data="change_nick"),
-         InlineKeyboardButton(text="🔄 Смена позиции", callback_data="change_pos")],
-        [InlineKeyboardButton(text="🏁 Завершение карьеры", callback_data="end_career"),
-         InlineKeyboardButton(text="❤️ Возвращение карьеры", callback_data="return_career")],
-        [InlineKeyboardButton(text="⏸️ Приост. карьеры", callback_data="pause_career"),
-         InlineKeyboardButton(text="🏆 Поиск товы", callback_data="find_tour")],
-        [InlineKeyboardButton(text="🔎 Поиск игроков", callback_data="find_players"),
-         InlineKeyboardButton(text="🛠️ Техподдержка", callback_data="support")],
-        [InlineKeyboardButton(text="📢 Жалобы", callback_data="complaints")],
-        [InlineKeyboardButton(text="🛡️ Состав ТММ", callback_data="tmm_staff")]
+         InlineKeyboardButton(text="👤 Свободный агент", callback_data="free_agent")],
+        [InlineKeyboardButton(text="⚽ Переход в клуб", callback_data="transfer_club"),
+         InlineKeyboardButton(text="🔄 Смена никнейма", callback_data="change_nick")],
+        [InlineKeyboardButton(text="🔄 Смена позиции", callback_data="change_pos"),
+         InlineKeyboardButton(text="🏁 Завершение карьеры", callback_data="end_career")],
+        [InlineKeyboardButton(text="❤️ Возвращение карьеры", callback_data="return_career"),
+         InlineKeyboardButton(text="⏸️ Приост. карьеры", callback_data="pause_career")],
+        [InlineKeyboardButton(text="🏆 Поиск товы", callback_data="find_tour"),
+         InlineKeyboardButton(text="🔎 Поиск игроков", callback_data="find_players")],
+        [InlineKeyboardButton(text="🛠️ Техподдержка", callback_data="support"),
+         InlineKeyboardButton(text="📢 Жалобы", callback_data="complaints")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# --- СТАРТ, ПОМОЩЬ И ОТМЕНА ---
+# --- КОМАНДЫ ---
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Выбери категорию:", reply_markup=get_main_menu())
 
-@dp.message(Command("help"))
-async def cmd_help(message: types.Message):
-    help_text = (
-        "🤖 **Помощь по боту Rss-Transfer**\n\n"
-        "Этот бот создан для подачи заявок на трансферный рынок.\n\n"
-        "🔹 Нажми на любую кнопку в меню, чтобы начать.\n"
-        "🔹 Если ты ошибся или передумал, напиши /cancel, чтобы вернуться в меню.\n"
-        "🔹 Если у тебя есть вопросы, напиши в техподдержку."
-    )
-    await message.answer(help_text, parse_mode="Markdown")
+@dp.message(Command("id"))
+async def cmd_id(message: types.Message):
+    await message.answer(f"Chat ID: `{message.chat.id}`", parse_mode="Markdown")
 
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Действие отменено. Выбери категорию:", reply_markup=get_main_menu())
 
-# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ОТПРАВКИ ---
+# --- ФУНКЦИЯ ОТПРАВКИ ЗАЯВКИ ---
 async def send_application(message: types.Message, text: str):
+    user = message.from_user
+    if user.username:
+        author = f"@{user.username}"
+    else:
+        author = f"{user.full_name} (ID: {user.id})"
+    
+    full_text = f"{text}\n\n👤 **Автор:** {author}"
+    
+    # Кнопки для модераторов
+    mod_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Принять", callback_data="mod_accept"),
+         InlineKeyboardButton(text="❌ Отказать", callback_data="mod_decline")]
+    ])
+    
+    # Отправляем в группу
+    try:
+        await bot.send_message(chat_id=GROUP_ID, text=full_text, parse_mode="Markdown", reply_markup=mod_kb)
+    except Exception as e:
+        logging.error(f"Ошибка отправки в группу (GROUP_ID={GROUP_ID}): {e}")
+    
+    # Сообщение пользователю
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="back_to_menu")]
     ])
-    await message.answer(f"✅ Твоя заявка опубликована!\n\n{text}", parse_mode="Markdown", reply_markup=back_kb)
+    await message.answer(
+        f"✅ **Заявка отправлена модераторам:**\n{MODERATORS}\n\nОжидай ответа.",
+        parse_mode="Markdown",
+        reply_markup=back_kb
+    )
+
+# --- МОДЕРАЦИЯ ---
+@dp.callback_query(F.data == "mod_accept")
+async def mod_accept(callback: types.CallbackQuery):
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.reply(f"✅ Принято модератором {callback.from_user.full_name}")
+    await callback.answer("Заявка принята!")
+
+@dp.callback_query(F.data == "mod_decline")
+async def mod_decline(callback: types.CallbackQuery):
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.reply(f"❌ Отклонено модератором {callback.from_user.full_name}")
+    await callback.answer("Заявка отклонена!")
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu_handler(callback: types.CallbackQuery, state: FSMContext):
@@ -335,14 +366,14 @@ async def process_buy_ad(callback: types.CallbackQuery):
     await callback.message.answer("Чтобы купить рекламу, напишите нам в ЛС и отправьте звезды.")
     await callback.answer()
 
-@dp.callback_query(F.data == "mirror")
-async def process_mirror(callback: types.CallbackQuery):
-    await callback.message.answer("Зеркало временно недоступно (появится позже).")
-    await callback.answer()
-
 @dp.callback_query(F.data == "support")
 async def process_support(callback: types.CallbackQuery):
     await callback.message.answer("Техподдержка: напишите нам в ЛС.")
+    await callback.answer()
+
+@dp.callback_query(F.data == "complaints")
+async def process_complaints(callback: types.CallbackQuery):
+    await callback.message.answer("По жалобам напишите модераторам в ЛС.")
     await callback.answer()
 
 @dp.callback_query()
@@ -359,7 +390,8 @@ async def main():
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start()
-    logging.info(f"Веб-сервер успешно запущен на порту {PORT}")
+    logging.info(f"Веб-сервер запущен на порту {PORT}")
+    logging.info(f"GROUP_ID = {GROUP_ID}")
 
     logging.info("Запуск бота...")
     await dp.start_polling(bot)
