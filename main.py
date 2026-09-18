@@ -6,9 +6,10 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiohttp import web
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-# Сюда мы потом вставим ID канала, чтобы заявки падали туда
+PORT = int(os.getenv("PORT", 8080))
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "ТВОЙ_ID_СЮДА") 
 
 logging.basicConfig(level=logging.INFO)
@@ -105,12 +106,6 @@ async def send_application(message: types.Message, text: str):
         [InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="back_to_menu")]
     ])
     await message.answer(f"✅ Твоя заявка опубликована!\n\n{text}", parse_mode="Markdown", reply_markup=back_kb)
-    
-    # ТУТ МЫ ПОЗЖЕ ВСТАВИМ ОТПРАВКУ В КАНАЛ:
-    # try:
-    #     await bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="Markdown")
-    # except Exception as e:
-    #     logging.error(f"Не удалось отправить в канал: {e}")
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu_handler(callback: types.CallbackQuery, state: FSMContext):
@@ -357,6 +352,16 @@ async def process_other(callback: types.CallbackQuery):
 
 # --- ЗАПУСК ---
 async def main():
+    logging.info("Запуск веб-сервера для Render...")
+    app = web.Application()
+    app.router.add_get('/', lambda r: web.Response(text="Bot is running"))
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    await site.start()
+    logging.info(f"Веб-сервер успешно запущен на порту {PORT}")
+
+    logging.info("Запуск бота...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
