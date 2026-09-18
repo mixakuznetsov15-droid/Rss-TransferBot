@@ -8,6 +8,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+# Сюда мы потом вставим ID канала, чтобы заявки падали туда
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "ТВОЙ_ID_СЮДА") 
 
 logging.basicConfig(level=logging.INFO)
@@ -100,11 +101,9 @@ async def cmd_cancel(message: types.Message, state: FSMContext):
 
 # --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ОТПРАВКИ ---
 async def send_application(message: types.Message, text: str):
-    # Кнопка возврата в меню
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="back_to_menu")]
     ])
-    
     await message.answer(f"✅ Твоя заявка опубликована!\n\n{text}", parse_mode="Markdown", reply_markup=back_kb)
     
     # ТУТ МЫ ПОЗЖЕ ВСТАВИМ ОТПРАВКУ В КАНАЛ:
