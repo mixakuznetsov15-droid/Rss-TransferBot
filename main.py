@@ -9,7 +9,7 @@ from aiohttp import web # Добавляем библиотеку для веб-
 import os
 
 # Вставь сюда свой токен от BotFather (но лучше вынести его в переменные окружения, см. Шаг 3)
-TOKEN = "ТВОЙ_ТОКЕН_ЗДЕСЬ" 
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
