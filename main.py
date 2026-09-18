@@ -8,7 +8,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-# Сюда мы потом вставим ID канала или твой ID, чтобы заявки приходили тебе
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "ТВОЙ_ID_СЮДА") 
 
 logging.basicConfig(level=logging.INFO)
@@ -77,16 +76,48 @@ def get_main_menu():
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# --- СТАРТ И ОТМЕНА ---
+# --- СТАРТ, ПОМОЩЬ И ОТМЕНА ---
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Выбери категорию:", reply_markup=get_main_menu())
 
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    help_text = (
+        "🤖 **Помощь по боту Rss-Transfer**\n\n"
+        "Этот бот создан для подачи заявок на трансферный рынок.\n\n"
+        "🔹 Нажми на любую кнопку в меню, чтобы начать.\n"
+        "🔹 Если ты ошибся или передумал, напиши /cancel, чтобы вернуться в меню.\n"
+        "🔹 Если у тебя есть вопросы, напиши в техподдержку."
+    )
+    await message.answer(help_text, parse_mode="Markdown")
+
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Действие отменено. Выбери категорию:", reply_markup=get_main_menu())
+
+# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ОТПРАВКИ ---
+async def send_application(message: types.Message, text: str):
+    # Кнопка возврата в меню
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="back_to_menu")]
+    ])
+    
+    await message.answer(f"✅ Твоя заявка опубликована!\n\n{text}", parse_mode="Markdown", reply_markup=back_kb)
+    
+    # ТУТ МЫ ПОЗЖЕ ВСТАВИМ ОТПРАВКУ В КАНАЛ:
+    # try:
+    #     await bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="Markdown")
+    # except Exception as e:
+    #     logging.error(f"Не удалось отправить в канал: {e}")
+
+@dp.callback_query(F.data == "back_to_menu")
+async def back_to_menu_handler(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("Выбери категорию:", reply_markup=get_main_menu())
+    await callback.answer()
 
 # --- СВОБОДНЫЙ АГЕНТ ---
 @dp.callback_query(F.data == "free_agent")
@@ -303,15 +334,6 @@ async def process_fp_req(message: types.Message, state: FSMContext):
     post_text = f"🔎 **Поиск игроков**\n\nТребование: {message.text}"
     await send_application(message, post_text)
     await state.clear()
-
-# --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ОТПРАВКИ ---
-async def send_application(message: types.Message, text: str):
-    await message.answer(f"✅ Твоя заявка опубликована!\n\n{text}", parse_mode="Markdown")
-    # ТУТ МЫ ПОЗЖЕ ВСТАВИМ ОТПРАВКУ В КАНАЛ:
-    # try:
-    #     await bot.send_message(chat_id=ADMIN_CHAT_ID, text=text, parse_mode="Markdown")
-    # except Exception as e:
-    #     logging.error(f"Не удалось отправить в канал: {e}")
 
 # --- ЗАГЛУШКИ ---
 @dp.callback_query(F.data == "buy_ad")
