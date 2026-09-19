@@ -21,7 +21,6 @@ dp = Dispatcher()
 
 # --- СОСТОЯНИЯ (FSM) ---
 class FreeAgentState(StatesGroup):
-    nickname = State()
     requirements = State()
     destination = State()
 
@@ -31,25 +30,20 @@ class TransferState(StatesGroup):
     position = State()
 
 class ChangeNickState(StatesGroup):
-    old_nick = State()
     new_nick = State()
 
 class ChangePosState(StatesGroup):
-    nickname = State()
     old_pos = State()
     new_pos = State()
 
 class EndCareerState(StatesGroup):
-    nickname = State()
     reason = State()
     position = State()
 
 class ReturnCareerState(StatesGroup):
-    nickname = State()
     ps = State()
 
 class PauseCareerState(StatesGroup):
-    nickname = State()
     reason = State()
 
 class FindTourState(StatesGroup):
@@ -61,7 +55,6 @@ class FindTourState(StatesGroup):
 class FindPlayersState(StatesGroup):
     requirement = State()
 
-# Новое состояние для запроса причины отказа
 class ModerationState(StatesGroup):
     waiting_decline_reason = State()
 
@@ -98,7 +91,12 @@ async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Действие отменено. Выбери категорию:", reply_markup=get_main_menu())
 
-# --- ПОЛУЧЕНИЕ КОНТАКТА АВТОРА ---
+# --- АВТОПОДСТАНОВКА ---
+def get_auto_nick(user: types.User) -> str:
+    if user.username:
+        return f"@{user.username}"
+    return user.full_name
+
 def get_author_contact(user: types.User) -> str:
     if user.username:
         return f"@{user.username}"
@@ -179,7 +177,7 @@ async def mod_accept(callback: types.CallbackQuery):
     
     await callback.answer("Заявка принята и опубликована!")
 
-# --- МОДЕРАЦИЯ: ОТКАЗАТЬ (первый шаг — запрос причины) ---
+# --- МОДЕРАЦИЯ: ОТКАЗАТЬ ---
 @dp.callback_query(F.data.startswith("mod_decline_"), F.message.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def mod_decline(callback: types.CallbackQuery, state: FSMContext):
     user_id = int(callback.data.replace("mod_decline_", ""))
@@ -192,22 +190,21 @@ async def mod_decline(callback: types.CallbackQuery, state: FSMContext):
     
     await callback.message.edit_reply_markup(reply_markup=None)
     
-    # Сохраняем данные для второго шага (получение причины)
+    # ⚠️ ВАЖНО: сохраняем ID сообщения, которое СЕЙЧАС отправим
+    sent_msg = await callback.message.reply(
+        f"❌ <b>Отклонено модератором {callback.from_user.full_name}.</b>\n\n"
+        f"Напишите причину отказа <b>ответом (reply)</b> на ЭТО сообщение — она будет отправлена автору заявки.",
+        parse_mode="HTML"
+    )
+    
     await state.update_data(
         author_id=user_id,
         clean_text=clean_text,
-        decline_msg_id=callback.message.message_id
+        decline_msg_id=sent_msg.message_id
     )
     await state.set_state(ModerationState.waiting_decline_reason)
-    
-    await callback.message.reply(
-        f"❌ <b>Отклонено модератором {callback.from_user.full_name}.</b>\n\n"
-        f"Напишите причину отказа <b>ответом (reply)</b> на это сообщение — она будет отправлена автору заявки.",
-        parse_mode="HTML"
-    )
-    await callback.answer("Напишите причину отказа")
+    await callback.answer("Напишите причину отказа (reply)")
 
-# --- МОДЕРАЦИЯ: ПОЛУЧЕНИЕ ПРИЧИНЫ ОТКАЗА ---
 @dp.message(ModerationState.waiting_decline_reason, F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def process_decline_reason(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -215,7 +212,7 @@ async def process_decline_reason(message: types.Message, state: FSMContext):
     clean_text = data.get("clean_text", "Заявка")
     decline_msg_id = data.get("decline_msg_id")
     
-    # Проверяем, что это reply на наше сообщение
+    # Проверяем, что это reply на НАШЕ сообщение с запросом причины
     if not message.reply_to_message or message.reply_to_message.message_id != decline_msg_id:
         await message.reply(
             "⚠️ Пожалуйста, напишите причину отказа <b>ответом (reply)</b> на сообщение выше.",
@@ -226,7 +223,6 @@ async def process_decline_reason(message: types.Message, state: FSMContext):
     reason = message.text or "Без указания причины"
     await state.clear()
     
-    # Отправляем автору уведомление с причиной
     try:
         await bot.send_message(
             chat_id=author_id,
@@ -239,7 +235,7 @@ async def process_decline_reason(message: types.Message, state: FSMContext):
         await message.reply("✅ Причина отказа отправлена автору заявки.")
     except Exception as e:
         logging.error(f"Не удалось уведомить пользователя {author_id}: {e}")
-        await message.reply(f"⚠️ Не удалось отправить уведомление автору (ID: {author_id}). Он мог заблокировать бота.")
+        await message.reply(f"⚠️ Не удалось отправить уведомление автору (ID: {author_id}).")
 
 # --- КНОПКА "В МЕНЮ" ---
 @dp.callback_query(F.data == "back_to_menu", F.message.chat.type == ChatType.PRIVATE)
@@ -251,15 +247,11 @@ async def back_to_menu_handler(callback: types.CallbackQuery, state: FSMContext)
 # --- СВОБОДНЫЙ АГЕНТ ---
 @dp.callback_query(F.data == "free_agent", F.message.chat.type == ChatType.PRIVATE)
 async def start_free_agent(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Напишите ваш никнейм (или /cancel для отмены):")
-    await state.set_state(FreeAgentState.nickname)
-    await callback.answer()
-
-@dp.message(FreeAgentState.nickname, F.chat.type == ChatType.PRIVATE)
-async def process_fa_nick(message: types.Message, state: FSMContext):
-    await state.update_data(nickname=message.text)
-    await message.answer("Напишите ваше требование:")
+    nick = get_auto_nick(callback.from_user)
+    await state.update_data(nickname=nick)
+    await callback.message.answer(f"✅ Ваш ник: <b>{nick}</b>\n\nНапишите ваше требование:", parse_mode="HTML")
     await state.set_state(FreeAgentState.requirements)
+    await callback.answer()
 
 @dp.message(FreeAgentState.requirements, F.chat.type == ChatType.PRIVATE)
 async def process_fa_req(message: types.Message, state: FSMContext):
@@ -307,18 +299,17 @@ async def process_tr_pos(message: types.Message, state: FSMContext):
     await send_application(message.from_user, post_text)
     await state.clear()
 
-# --- СМЕНА НИКНЕЙМА ---
+# --- СМЕНА НИКНЕЙМА (только новый ник) ---
 @dp.callback_query(F.data == "change_nick", F.message.chat.type == ChatType.PRIVATE)
 async def start_change_nick(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Какой у вас никнейм был изначально?")
-    await state.set_state(ChangeNickState.old_nick)
-    await callback.answer()
-
-@dp.message(ChangeNickState.old_nick, F.chat.type == ChatType.PRIVATE)
-async def process_cn_old(message: types.Message, state: FSMContext):
-    await state.update_data(old_nick=message.text)
-    await message.answer("Какой никнейм хотите сделать?")
+    nick = get_auto_nick(callback.from_user)
+    await state.update_data(old_nick=nick)
+    await callback.message.answer(
+        f"✅ Ваш текущий ник: <b>{nick}</b>\n\nНапишите новый никнейм:",
+        parse_mode="HTML"
+    )
     await state.set_state(ChangeNickState.new_nick)
+    await callback.answer()
 
 @dp.message(ChangeNickState.new_nick, F.chat.type == ChatType.PRIVATE)
 async def process_cn_new(message: types.Message, state: FSMContext):
@@ -330,15 +321,11 @@ async def process_cn_new(message: types.Message, state: FSMContext):
 # --- СМЕНА ПОЗИЦИИ ---
 @dp.callback_query(F.data == "change_pos", F.message.chat.type == ChatType.PRIVATE)
 async def start_change_pos(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Напишите ваш никнейм:")
-    await state.set_state(ChangePosState.nickname)
-    await callback.answer()
-
-@dp.message(ChangePosState.nickname, F.chat.type == ChatType.PRIVATE)
-async def process_cp_nick(message: types.Message, state: FSMContext):
-    await state.update_data(nickname=message.text)
-    await message.answer("Напишите вашу прошлую позицию:")
+    nick = get_auto_nick(callback.from_user)
+    await state.update_data(nickname=nick)
+    await callback.message.answer(f"✅ Ваш ник: <b>{nick}</b>\n\nНапишите вашу прошлую позицию:", parse_mode="HTML")
     await state.set_state(ChangePosState.old_pos)
+    await callback.answer()
 
 @dp.message(ChangePosState.old_pos, F.chat.type == ChatType.PRIVATE)
 async def process_cp_old(message: types.Message, state: FSMContext):
@@ -356,15 +343,11 @@ async def process_cp_new(message: types.Message, state: FSMContext):
 # --- ЗАВЕРШЕНИЕ КАРЬЕРЫ ---
 @dp.callback_query(F.data == "end_career", F.message.chat.type == ChatType.PRIVATE)
 async def start_end_career(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Напишите ваш никнейм:")
-    await state.set_state(EndCareerState.nickname)
-    await callback.answer()
-
-@dp.message(EndCareerState.nickname, F.chat.type == ChatType.PRIVATE)
-async def process_ec_nick(message: types.Message, state: FSMContext):
-    await state.update_data(nickname=message.text)
-    await message.answer("Почему решили завершить карьеру?")
+    nick = get_auto_nick(callback.from_user)
+    await state.update_data(nickname=nick)
+    await callback.message.answer(f"✅ Ваш ник: <b>{nick}</b>\n\nПочему решили завершить карьеру?", parse_mode="HTML")
     await state.set_state(EndCareerState.reason)
+    await callback.answer()
 
 @dp.message(EndCareerState.reason, F.chat.type == ChatType.PRIVATE)
 async def process_ec_reason(message: types.Message, state: FSMContext):
@@ -382,15 +365,11 @@ async def process_ec_pos(message: types.Message, state: FSMContext):
 # --- ВОЗВРАЩЕНИЕ КАРЬЕРЫ ---
 @dp.callback_query(F.data == "return_career", F.message.chat.type == ChatType.PRIVATE)
 async def start_return_career(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Напишите ваш никнейм:")
-    await state.set_state(ReturnCareerState.nickname)
-    await callback.answer()
-
-@dp.message(ReturnCareerState.nickname, F.chat.type == ChatType.PRIVATE)
-async def process_rc_nick(message: types.Message, state: FSMContext):
-    await state.update_data(nickname=message.text)
-    await message.answer("Напишите PS (причину возвращения):")
+    nick = get_auto_nick(callback.from_user)
+    await state.update_data(nickname=nick)
+    await callback.message.answer(f"✅ Ваш ник: <b>{nick}</b>\n\nНапишите PS (причину возвращения):", parse_mode="HTML")
     await state.set_state(ReturnCareerState.ps)
+    await callback.answer()
 
 @dp.message(ReturnCareerState.ps, F.chat.type == ChatType.PRIVATE)
 async def process_rc_ps(message: types.Message, state: FSMContext):
@@ -402,15 +381,11 @@ async def process_rc_ps(message: types.Message, state: FSMContext):
 # --- ПРИОСТАНОВЛЕНИЕ КАРЬЕРЫ ---
 @dp.callback_query(F.data == "pause_career", F.message.chat.type == ChatType.PRIVATE)
 async def start_pause_career(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Напишите ваш никнейм:")
-    await state.set_state(PauseCareerState.nickname)
-    await callback.answer()
-
-@dp.message(PauseCareerState.nickname, F.chat.type == ChatType.PRIVATE)
-async def process_pc_nick(message: types.Message, state: FSMContext):
-    await state.update_data(nickname=message.text)
-    await message.answer("Почему решили приостановить карьеру?")
+    nick = get_auto_nick(callback.from_user)
+    await state.update_data(nickname=nick)
+    await callback.message.answer(f"✅ Ваш ник: <b>{nick}</b>\n\nПочему решили приостановить карьеру?", parse_mode="HTML")
     await state.set_state(PauseCareerState.reason)
+    await callback.answer()
 
 @dp.message(PauseCareerState.reason, F.chat.type == ChatType.PRIVATE)
 async def process_pc_reason(message: types.Message, state: FSMContext):
