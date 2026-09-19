@@ -61,6 +61,10 @@ class FindTourState(StatesGroup):
 class FindPlayersState(StatesGroup):
     requirement = State()
 
+# Новое состояние для запроса причины отказа
+class ModerationState(StatesGroup):
+    waiting_decline_reason = State()
+
 # --- МЕНЮ ---
 def get_main_menu():
     buttons = [
@@ -94,23 +98,18 @@ async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Действие отменено. Выбери категорию:", reply_markup=get_main_menu())
 
-# --- ФУНКЦИЯ ПОЛУЧЕНИЯ КОНТАКТА АВТОРА ---
+# --- ПОЛУЧЕНИЕ КОНТАКТА АВТОРА ---
 def get_author_contact(user: types.User) -> str:
-    """Возвращает строку для связи с пользователем."""
     if user.username:
         return f"@{user.username}"
-    else:
-        # Если нет username — кликабельная ссылка на профиль по ID
-        return f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
+    return f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
 
-# --- ФУНКЦИЯ ОТПРАВКИ ЗАЯВКИ ---
-async def send_application(message: types.Message, text: str):
-    user = message.from_user
+# --- ОТПРАВКА ЗАЯВКИ ---
+async def send_application(user: types.User, text: str):
     contact = get_author_contact(user)
     
     full_text = (
         f"{text}\n\n"
-        f"👤 <b>Автор:</b> {contact}\n"
         f"📝 <b>Писать:</b> {contact}\n\n"
         f"📩 <b>Модераторы:</b> {MODERATORS}"
     )
@@ -128,48 +127,47 @@ async def send_application(message: types.Message, text: str):
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="back_to_menu")]
     ])
-    await message.answer(
-        f"✅ <b>Заявка отправлена модераторам:</b>\n{MODERATORS}\n\nОжидай ответа.",
-        parse_mode="HTML",
-        reply_markup=back_kb
-    )
+    try:
+        await bot.send_message(
+            chat_id=user.id,
+            text=f"✅ <b>Заявка отправлена модераторам:</b>\n{MODERATORS}\n\nОжидай ответа.",
+            parse_mode="HTML",
+            reply_markup=back_kb
+        )
+    except Exception as e:
+        logging.error(f"Не удалось отправить подтверждение пользователю {user.id}: {e}")
 
-# --- МОДЕРАЦИЯ ---
+# --- МОДЕРАЦИЯ: ПРИНЯТЬ ---
 @dp.callback_query(F.data.startswith("mod_accept_"), F.message.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def mod_accept(callback: types.CallbackQuery):
     user_id = int(callback.data.replace("mod_accept_", ""))
     
-    # Извлекаем чистый текст заявки (без служебных строк)
-    clean_text = ""
-    contact_line = ""
+    try:
+        user_info = await bot.get_chat(user_id)
+        if user_info.username:
+            contact = f"@{user_info.username}"
+        else:
+            contact = f'<a href="tg://user?id={user_id}">{user_info.full_name}</a>'
+    except Exception as e:
+        logging.error(f"Не удалось получить инфо о пользователе {user_id}: {e}")
+        contact = f"ID: {user_id}"
+    
     if callback.message.text:
         original_text = callback.message.text
-        # Отрезаем всё, что идёт после основной заявки
-        clean_text = original_text.split("\n\n👤 ")[0]
-        # Извлекаем контакт из строки "Писать: ..."
-        if "📝 Писать: " in original_text:
-            contact_part = original_text.split("📝 Писать: ")[1].split("\n")[0]
-            contact_line = f"📝 <b>Писать:</b> {contact_part}"
-        elif "👤 Автор: " in original_text:
-            author_part = original_text.split("👤 Автор: ")[1].split("\n")[0]
-            contact_line = f"📝 <b>Писать:</b> {author_part}"
+        clean_text = original_text.split("\n\n📝 Писать:")[0]
+    else:
+        clean_text = "Заявка"
     
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.reply(f"✅ Принято модератором {callback.from_user.full_name}")
     
-    # Публикуем в канал с контактом
-    if contact_line:
-        channel_post = f"{clean_text}\n\n{contact_line}"
-    else:
-        channel_post = clean_text
-    
+    channel_post = f"{clean_text}\n\n📝 <b>Писать:</b> {contact}"
     try:
         await bot.send_message(chat_id=CHANNEL_ID, text=channel_post, parse_mode="HTML")
         logging.info(f"Заявка опубликована в канал {CHANNEL_ID}")
     except Exception as e:
         logging.error(f"Ошибка публикации в канал: {e}")
     
-    # Уведомляем автора
     try:
         await bot.send_message(
             chat_id=user_id,
@@ -181,32 +179,69 @@ async def mod_accept(callback: types.CallbackQuery):
     
     await callback.answer("Заявка принята и опубликована!")
 
+# --- МОДЕРАЦИЯ: ОТКАЗАТЬ (первый шаг — запрос причины) ---
 @dp.callback_query(F.data.startswith("mod_decline_"), F.message.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
-async def mod_decline(callback: types.CallbackQuery):
+async def mod_decline(callback: types.CallbackQuery, state: FSMContext):
     user_id = int(callback.data.replace("mod_decline_", ""))
     
     if callback.message.text:
         original_text = callback.message.text
-        clean_text = original_text.split("\n\n👤 ")[0]
+        clean_text = original_text.split("\n\n📝 Писать:")[0]
     else:
         clean_text = "Заявка"
     
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.reply(f"❌ Отклонено модератором {callback.from_user.full_name}")
     
+    # Сохраняем данные для второго шага (получение причины)
+    await state.update_data(
+        author_id=user_id,
+        clean_text=clean_text,
+        decline_msg_id=callback.message.message_id
+    )
+    await state.set_state(ModerationState.waiting_decline_reason)
+    
+    await callback.message.reply(
+        f"❌ <b>Отклонено модератором {callback.from_user.full_name}.</b>\n\n"
+        f"Напишите причину отказа <b>ответом (reply)</b> на это сообщение — она будет отправлена автору заявки.",
+        parse_mode="HTML"
+    )
+    await callback.answer("Напишите причину отказа")
+
+# --- МОДЕРАЦИЯ: ПОЛУЧЕНИЕ ПРИЧИНЫ ОТКАЗА ---
+@dp.message(ModerationState.waiting_decline_reason, F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
+async def process_decline_reason(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    author_id = data.get("author_id")
+    clean_text = data.get("clean_text", "Заявка")
+    decline_msg_id = data.get("decline_msg_id")
+    
+    # Проверяем, что это reply на наше сообщение
+    if not message.reply_to_message or message.reply_to_message.message_id != decline_msg_id:
+        await message.reply(
+            "⚠️ Пожалуйста, напишите причину отказа <b>ответом (reply)</b> на сообщение выше.",
+            parse_mode="HTML"
+        )
+        return
+    
+    reason = message.text or "Без указания причины"
+    await state.clear()
+    
+    # Отправляем автору уведомление с причиной
     try:
         await bot.send_message(
-            chat_id=user_id,
+            chat_id=author_id,
             text=f"❌ <b>Ваша заявка отклонена.</b>\n\n"
-                 f"Заявка: {clean_text}\n\n"
+                 f"<b>Заявка:</b>\n{clean_text}\n\n"
+                 f"<b>Причина отказа:</b> {reason}\n\n"
                  f"Если вы не согласны — свяжитесь с модераторами: {MODERATORS}",
             parse_mode="HTML"
         )
+        await message.reply("✅ Причина отказа отправлена автору заявки.")
     except Exception as e:
-        logging.error(f"Не удалось уведомить пользователя {user_id}: {e}")
-    
-    await callback.answer("Заявка отклонена!")
+        logging.error(f"Не удалось уведомить пользователя {author_id}: {e}")
+        await message.reply(f"⚠️ Не удалось отправить уведомление автору (ID: {author_id}). Он мог заблокировать бота.")
 
+# --- КНОПКА "В МЕНЮ" ---
 @dp.callback_query(F.data == "back_to_menu", F.message.chat.type == ChatType.PRIVATE)
 async def back_to_menu_handler(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
@@ -242,7 +277,7 @@ async def process_fa_dest(callback: types.CallbackQuery, state: FSMContext):
     dest_map = {"fa_dest_club": "Клуб", "fa_dest_nat": "Сборная", "fa_dest_both": "Клуб или Сборная"}
     data = await state.get_data()
     post_text = f"👤 <b>Свободный агент</b>\n\nНик: {data.get('nickname')}\nТребование: {data.get('requirements')}\nКуда: {dest_map.get(callback.data)}"
-    await send_application(callback.message, post_text)
+    await send_application(callback.from_user, post_text)
     await state.clear()
     await callback.answer()
 
@@ -269,7 +304,7 @@ async def process_tr_to(message: types.Message, state: FSMContext):
 async def process_tr_pos(message: types.Message, state: FSMContext):
     data = await state.get_data()
     post_text = f"⚽ <b>Переход в клуб</b>\n\nОткуда: {data.get('from_where')}\nКуда: {data.get('to_where')}\nПозиция: {message.text}"
-    await send_application(message, post_text)
+    await send_application(message.from_user, post_text)
     await state.clear()
 
 # --- СМЕНА НИКНЕЙМА ---
@@ -289,7 +324,7 @@ async def process_cn_old(message: types.Message, state: FSMContext):
 async def process_cn_new(message: types.Message, state: FSMContext):
     data = await state.get_data()
     post_text = f"🔄 <b>Смена никнейма</b>\n\nСтарый: {data.get('old_nick')}\nНовый: {message.text}"
-    await send_application(message, post_text)
+    await send_application(message.from_user, post_text)
     await state.clear()
 
 # --- СМЕНА ПОЗИЦИИ ---
@@ -315,7 +350,7 @@ async def process_cp_old(message: types.Message, state: FSMContext):
 async def process_cp_new(message: types.Message, state: FSMContext):
     data = await state.get_data()
     post_text = f"🔄 <b>Смена позиции</b>\n\nНик: {data.get('nickname')}\nБыло: {data.get('old_pos')}\nСтало: {message.text}"
-    await send_application(message, post_text)
+    await send_application(message.from_user, post_text)
     await state.clear()
 
 # --- ЗАВЕРШЕНИЕ КАРЬЕРЫ ---
@@ -341,7 +376,7 @@ async def process_ec_reason(message: types.Message, state: FSMContext):
 async def process_ec_pos(message: types.Message, state: FSMContext):
     data = await state.get_data()
     post_text = f"🏁 <b>Завершение карьеры</b>\n\nНик: {data.get('nickname')}\nПричина: {data.get('reason')}\nПозиция: {message.text}"
-    await send_application(message, post_text)
+    await send_application(message.from_user, post_text)
     await state.clear()
 
 # --- ВОЗВРАЩЕНИЕ КАРЬЕРЫ ---
@@ -361,7 +396,7 @@ async def process_rc_nick(message: types.Message, state: FSMContext):
 async def process_rc_ps(message: types.Message, state: FSMContext):
     data = await state.get_data()
     post_text = f"❤️ <b>Возвращение карьеры</b>\n\nНик: {data.get('nickname')}\nPS: {message.text}"
-    await send_application(message, post_text)
+    await send_application(message.from_user, post_text)
     await state.clear()
 
 # --- ПРИОСТАНОВЛЕНИЕ КАРЬЕРЫ ---
@@ -381,7 +416,7 @@ async def process_pc_nick(message: types.Message, state: FSMContext):
 async def process_pc_reason(message: types.Message, state: FSMContext):
     data = await state.get_data()
     post_text = f"⏸️ <b>Приостановление карьеры</b>\n\nНик: {data.get('nickname')}\nПричина: {message.text}"
-    await send_application(message, post_text)
+    await send_application(message.from_user, post_text)
     await state.clear()
 
 # --- ПОИСК ТОВЫ ---
@@ -413,7 +448,7 @@ async def process_ft_stadium(message: types.Message, state: FSMContext):
 async def process_ft_vip(message: types.Message, state: FSMContext):
     data = await state.get_data()
     post_text = f"🏆 <b>Поиск товы</b>\n\nКлуб: {data.get('club')}\nВремя: {data.get('time')}\nСтадион: {data.get('stadium')}\nVIP: {message.text}"
-    await send_application(message, post_text)
+    await send_application(message.from_user, post_text)
     await state.clear()
 
 # --- ПОИСК ИГРОКОВ ---
@@ -426,7 +461,7 @@ async def start_find_players(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(FindPlayersState.requirement, F.chat.type == ChatType.PRIVATE)
 async def process_fp_req(message: types.Message, state: FSMContext):
     post_text = f"🔎 <b>Поиск игроков</b>\n\nТребование: {message.text}"
-    await send_application(message, post_text)
+    await send_application(message.from_user, post_text)
     await state.clear()
 
 # --- КУПИТЬ РЕКЛАМУ ---
