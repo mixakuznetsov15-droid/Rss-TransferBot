@@ -11,7 +11,7 @@ from aiohttp import web
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PORT = int(os.getenv("PORT", 8080))
 GROUP_ID = -1004402712685
-MODERATORS = "@tot_samiy_onet, @meelviks, @kelist1"
+MODERATORS = "@Tot_samiy_onet, @meelviks, @kelist1"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
