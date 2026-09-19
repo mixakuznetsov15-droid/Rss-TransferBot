@@ -102,9 +102,10 @@ async def send_application(message: types.Message, text: str):
     
     full_text = f"{text}\n\n👤 <b>Автор:</b> {author}\n\n📩 <b>Модераторы:</b> {MODERATORS}"
     
+    # ВАЖНО: передаём user.id в callback_data, чтобы потом уведомить автора
     mod_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Принять", callback_data="mod_accept"),
-         InlineKeyboardButton(text="❌ Отказать", callback_data="mod_decline")]
+        [InlineKeyboardButton(text="✅ Принять", callback_data=f"mod_accept_{user.id}"),
+         InlineKeyboardButton(text="❌ Отказать", callback_data=f"mod_decline_{user.id}")]
     ])
     
     try:
@@ -121,17 +122,63 @@ async def send_application(message: types.Message, text: str):
         reply_markup=back_kb
     )
 
-# --- МОДЕРАЦИЯ ---
-@dp.callback_query(F.data == "mod_accept")
+# --- МОДЕРАЦИЯ С УВЕДОМЛЕНИЕМ АВТОРА ---
+@dp.callback_query(F.data.startswith("mod_accept_"))
 async def mod_accept(callback: types.CallbackQuery):
+    # Достаём ID автора из callback_data
+    user_id = int(callback.data.replace("mod_accept_", ""))
+    
+    # Тип заявки (первая строка сообщения в группе)
+    if callback.message.text:
+        first_line = callback.message.text.split("\n")[0].replace("<b>", "").replace("</b>", "")
+    else:
+        first_line = "Заявка"
+    
+    # Убираем кнопки, чтобы нельзя было нажать дважды
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.reply(f"✅ Принято модератором {callback.from_user.full_name}")
+    
+    # Уведомляем автора заявки в личку
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text=f"✅ <b>Ваша заявка принята!</b>\n\n"
+                 f"Тип: {first_line}\n\n"
+                 f"Модератор свяжется с вами в ближайшее время.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Не удалось уведомить пользователя {user_id}: {e}")
+    
     await callback.answer("Заявка принята!")
 
-@dp.callback_query(F.data == "mod_decline")
+@dp.callback_query(F.data.startswith("mod_decline_"))
 async def mod_decline(callback: types.CallbackQuery):
+    # Достаём ID автора
+    user_id = int(callback.data.replace("mod_decline_", ""))
+    
+    # Тип заявки
+    if callback.message.text:
+        first_line = callback.message.text.split("\n")[0].replace("<b>", "").replace("</b>", "")
+    else:
+        first_line = "Заявка"
+    
+    # Убираем кнопки
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.reply(f"❌ Отклонено модератором {callback.from_user.full_name}")
+    
+    # Уведомляем автора
+    try:
+        await bot.send_message(
+            chat_id=user_id,
+            text=f"❌ <b>Ваша заявка отклонена.</b>\n\n"
+                 f"Тип: {first_line}\n\n"
+                 f"Если вы не согласны — свяжитесь с модераторами: {MODERATORS}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Не удалось уведомить пользователя {user_id}: {e}")
+    
     await callback.answer("Заявка отклонена!")
 
 @dp.callback_query(F.data == "back_to_menu")
