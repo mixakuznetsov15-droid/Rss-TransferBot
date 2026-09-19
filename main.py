@@ -12,7 +12,7 @@ from aiohttp import web
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PORT = int(os.getenv("PORT", 8080))
 GROUP_ID = -1004371804499
-CHANNEL_ID = 0  # ⚠️ СЮДА ВСТАВЬ ID КАНАЛА
+CHANNEL_ID = "@tmTransferRss"
 MODERATORS = "@Tot_samiy_onet, @meelviks"
 
 logging.basicConfig(level=logging.INFO)
@@ -79,7 +79,7 @@ def get_main_menu():
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-# --- КОМАНДЫ (работают везде) ---
+# --- КОМАНДЫ ---
 @dp.message(CommandStart(), F.chat.type == ChatType.PRIVATE)
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -94,15 +94,26 @@ async def cmd_cancel(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Действие отменено. Выбери категорию:", reply_markup=get_main_menu())
 
+# --- ФУНКЦИЯ ПОЛУЧЕНИЯ КОНТАКТА АВТОРА ---
+def get_author_contact(user: types.User) -> str:
+    """Возвращает строку для связи с пользователем."""
+    if user.username:
+        return f"@{user.username}"
+    else:
+        # Если нет username — кликабельная ссылка на профиль по ID
+        return f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
+
 # --- ФУНКЦИЯ ОТПРАВКИ ЗАЯВКИ ---
 async def send_application(message: types.Message, text: str):
     user = message.from_user
-    if user.username:
-        author = f"@{user.username}"
-    else:
-        author = f"{user.full_name} (ID: {user.id})"
+    contact = get_author_contact(user)
     
-    full_text = f"{text}\n\n👤 <b>Автор:</b> {author}\n\n📩 <b>Модераторы:</b> {MODERATORS}"
+    full_text = (
+        f"{text}\n\n"
+        f"👤 <b>Автор:</b> {contact}\n"
+        f"📝 <b>Писать:</b> {contact}\n\n"
+        f"📩 <b>Модераторы:</b> {MODERATORS}"
+    )
     
     mod_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Принять", callback_data=f"mod_accept_{user.id}"),
@@ -123,35 +134,42 @@ async def send_application(message: types.Message, text: str):
         reply_markup=back_kb
     )
 
-# --- МОДЕРАЦИЯ (работает только в группе) ---
+# --- МОДЕРАЦИЯ ---
 @dp.callback_query(F.data.startswith("mod_accept_"), F.message.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def mod_accept(callback: types.CallbackQuery):
     user_id = int(callback.data.replace("mod_accept_", ""))
     
+    # Извлекаем чистый текст заявки (без служебных строк)
+    clean_text = ""
+    contact_line = ""
     if callback.message.text:
         original_text = callback.message.text
+        # Отрезаем всё, что идёт после основной заявки
         clean_text = original_text.split("\n\n👤 ")[0]
-        author_line = ""
-        if "👤 " in original_text:
-            author_part = original_text.split("👤 ")[1].split("\n")[0]
-            author_line = author_part.replace("<b>", "").replace("</b>", "").replace("Автор: ", "")
-    else:
-        clean_text = "Заявка"
-        author_line = "Неизвестно"
+        # Извлекаем контакт из строки "Писать: ..."
+        if "📝 Писать: " in original_text:
+            contact_part = original_text.split("📝 Писать: ")[1].split("\n")[0]
+            contact_line = f"📝 <b>Писать:</b> {contact_part}"
+        elif "👤 Автор: " in original_text:
+            author_part = original_text.split("👤 Автор: ")[1].split("\n")[0]
+            contact_line = f"📝 <b>Писать:</b> {author_part}"
     
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.reply(f"✅ Принято модератором {callback.from_user.full_name}")
     
-    channel_post = f"{clean_text}\n\n👤 {author_line}"
+    # Публикуем в канал с контактом
+    if contact_line:
+        channel_post = f"{clean_text}\n\n{contact_line}"
+    else:
+        channel_post = clean_text
+    
     try:
-        if CHANNEL_ID != 0:
-            await bot.send_message(chat_id=CHANNEL_ID, text=channel_post, parse_mode="HTML")
-            logging.info(f"Заявка опубликована в канал {CHANNEL_ID}")
-        else:
-            logging.warning("CHANNEL_ID не настроен, публикация пропущена")
+        await bot.send_message(chat_id=CHANNEL_ID, text=channel_post, parse_mode="HTML")
+        logging.info(f"Заявка опубликована в канал {CHANNEL_ID}")
     except Exception as e:
         logging.error(f"Ошибка публикации в канал: {e}")
     
+    # Уведомляем автора
     try:
         await bot.send_message(
             chat_id=user_id,
@@ -189,7 +207,6 @@ async def mod_decline(callback: types.CallbackQuery):
     
     await callback.answer("Заявка отклонена!")
 
-# --- МЕНЮ-КНОПКИ (только в личке) ---
 @dp.callback_query(F.data == "back_to_menu", F.message.chat.type == ChatType.PRIVATE)
 async def back_to_menu_handler(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
@@ -395,7 +412,7 @@ async def process_ft_stadium(message: types.Message, state: FSMContext):
 @dp.message(FindTourState.vip, F.chat.type == ChatType.PRIVATE)
 async def process_ft_vip(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"🏆 <b>Поиск товы (товарищеский матч)</b>\n\nКлуб: {data.get('club')}\nВремя: {data.get('time')}\nСтадион: {data.get('stadium')}\nVIP: {message.text}"
+    post_text = f"🏆 <b>Поиск товы</b>\n\nКлуб: {data.get('club')}\nВремя: {data.get('time')}\nСтадион: {data.get('stadium')}\nVIP: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
