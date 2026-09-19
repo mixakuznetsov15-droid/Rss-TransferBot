@@ -85,7 +85,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 
 @dp.message(Command("id"))
 async def cmd_id(message: types.Message):
-    await message.answer(f"Chat ID: `{message.chat.id}`", parse_mode="Markdown")
+    await message.answer(f"Chat ID: <code>{message.chat.id}</code>", parse_mode="HTML")
 
 @dp.message(Command("cancel"))
 async def cmd_cancel(message: types.Message, state: FSMContext):
@@ -100,7 +100,7 @@ async def send_application(message: types.Message, text: str):
     else:
         author = f"{user.full_name} (ID: {user.id})"
     
-    full_text = f"{text}\n\n👤 **Автор:** {author}\n\n📩 **Модераторы:** {MODERATORS}"
+    full_text = f"{text}\n\n👤 <b>Автор:</b> {author}\n\n📩 <b>Модераторы:</b> {MODERATORS}"
     
     mod_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Принять", callback_data="mod_accept"),
@@ -108,7 +108,7 @@ async def send_application(message: types.Message, text: str):
     ])
     
     try:
-        await bot.send_message(chat_id=GROUP_ID, text=full_text, parse_mode="Markdown", reply_markup=mod_kb)
+        await bot.send_message(chat_id=GROUP_ID, text=full_text, parse_mode="HTML", reply_markup=mod_kb)
     except Exception as e:
         logging.error(f"Ошибка отправки в группу: {e}")
     
@@ -116,8 +116,8 @@ async def send_application(message: types.Message, text: str):
         [InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="back_to_menu")]
     ])
     await message.answer(
-        f"✅ **Заявка отправлена модераторам:**\n{MODERATORS}\n\nОжидай ответа.",
-        parse_mode="Markdown",
+        f"✅ <b>Заявка отправлена модераторам:</b>\n{MODERATORS}\n\nОжидай ответа.",
+        parse_mode="HTML",
         reply_markup=back_kb
     )
 
@@ -168,7 +168,7 @@ async def process_fa_req(message: types.Message, state: FSMContext):
 async def process_fa_dest(callback: types.CallbackQuery, state: FSMContext):
     dest_map = {"fa_dest_club": "Клуб", "fa_dest_nat": "Сборная", "fa_dest_both": "Клуб или Сборная"}
     data = await state.get_data()
-    post_text = f"👤 **Свободный агент**\n\nНик: {data.get('nickname')}\nТребование: {data.get('requirements')}\nКуда: {dest_map.get(callback.data)}"
+    post_text = f"👤 <b>Свободный агент</b>\n\nНик: {data.get('nickname')}\nТребование: {data.get('requirements')}\nКуда: {dest_map.get(callback.data)}"
     await send_application(callback.message, post_text)
     await state.clear()
     await callback.answer()
@@ -195,7 +195,7 @@ async def process_tr_to(message: types.Message, state: FSMContext):
 @dp.message(TransferState.position)
 async def process_tr_pos(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"⚽ **Переход в клуб**\n\nОткуда: {data.get('from_where')}\nКуда: {data.get('to_where')}\nПозиция: {message.text}"
+    post_text = f"⚽ <b>Переход в клуб</b>\n\nОткуда: {data.get('from_where')}\nКуда: {data.get('to_where')}\nПозиция: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
@@ -215,7 +215,7 @@ async def process_cn_old(message: types.Message, state: FSMContext):
 @dp.message(ChangeNickState.new_nick)
 async def process_cn_new(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"🔄 **Смена никнейма**\n\nСтарый: {data.get('old_nick')}\nНовый: {message.text}"
+    post_text = f"🔄 <b>Смена никнейма</b>\n\nСтарый: {data.get('old_nick')}\nНовый: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
@@ -241,7 +241,7 @@ async def process_cp_old(message: types.Message, state: FSMContext):
 @dp.message(ChangePosState.new_pos)
 async def process_cp_new(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"🔄 **Смена позиции**\n\nНик: {data.get('nickname')}\nБыло: {data.get('old_pos')}\nСтало: {message.text}"
+    post_text = f"🔄 <b>Смена позиции</b>\n\nНик: {data.get('nickname')}\nБыло: {data.get('old_pos')}\nСтало: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
@@ -267,7 +267,7 @@ async def process_ec_reason(message: types.Message, state: FSMContext):
 @dp.message(EndCareerState.position)
 async def process_ec_pos(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"🏁 **Завершение карьеры**\n\nНик: {data.get('nickname')}\nПричина: {data.get('reason')}\nПозиция: {message.text}"
+    post_text = f"🏁 <b>Завершение карьеры</b>\n\nНик: {data.get('nickname')}\nПричина: {data.get('reason')}\nПозиция: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
@@ -287,7 +287,7 @@ async def process_rc_nick(message: types.Message, state: FSMContext):
 @dp.message(ReturnCareerState.ps)
 async def process_rc_ps(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"❤️ **Возвращение карьеры**\n\nНик: {data.get('nickname')}\nPS: {message.text}"
+    post_text = f"❤️ <b>Возвращение карьеры</b>\n\nНик: {data.get('nickname')}\nPS: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
@@ -307,7 +307,7 @@ async def process_pc_nick(message: types.Message, state: FSMContext):
 @dp.message(PauseCareerState.reason)
 async def process_pc_reason(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"⏸️ **Приостановление карьеры**\n\nНик: {data.get('nickname')}\nПричина: {message.text}"
+    post_text = f"⏸️ <b>Приостановление карьеры</b>\n\nНик: {data.get('nickname')}\nПричина: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
@@ -339,7 +339,7 @@ async def process_ft_stadium(message: types.Message, state: FSMContext):
 @dp.message(FindTourState.vip)
 async def process_ft_vip(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"🏆 **Поиск товы (товарищеский матч)**\n\nКлуб: {data.get('club')}\nВремя: {data.get('time')}\nСтадион: {data.get('stadium')}\nVIP: {message.text}"
+    post_text = f"🏆 <b>Поиск товы (товарищеский матч)</b>\n\nКлуб: {data.get('club')}\nВремя: {data.get('time')}\nСтадион: {data.get('stadium')}\nVIP: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
@@ -352,7 +352,7 @@ async def start_find_players(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(FindPlayersState.requirement)
 async def process_fp_req(message: types.Message, state: FSMContext):
-    post_text = f"🔎 **Поиск игроков**\n\nТребование: {message.text}"
+    post_text = f"🔎 <b>Поиск игроков</b>\n\nТребование: {message.text}"
     await send_application(message, post_text)
     await state.clear()
 
@@ -360,10 +360,10 @@ async def process_fp_req(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "buy_ad")
 async def process_buy_ad(callback: types.CallbackQuery):
     await callback.message.answer(
-        f"✅ **Купить рекламу**\n\n"
+        f"✅ <b>Купить рекламу</b>\n\n"
         f"Чтобы купить рекламу, напишите модераторам в ЛС и переведите звёзды:\n\n"
         f"📩 {MODERATORS}",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await callback.answer()
 
@@ -371,10 +371,10 @@ async def process_buy_ad(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "support")
 async def process_support(callback: types.CallbackQuery):
     await callback.message.answer(
-        f"🛠️ **Техподдержка**\n\n"
+        f"🛠️ <b>Техподдержка</b>\n\n"
         f"По всем вопросам обращайтесь к модераторам:\n\n"
         f"📩 {MODERATORS}",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await callback.answer()
 
@@ -382,10 +382,10 @@ async def process_support(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "complaints")
 async def process_complaints(callback: types.CallbackQuery):
     await callback.message.answer(
-        f"📢 **Жалобы**\n\n"
+        f"📢 <b>Жалобы</b>\n\n"
         f"По жалобам обращайтесь к модераторам:\n\n"
         f"📩 {MODERATORS}",
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await callback.answer()
 
