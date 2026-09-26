@@ -72,6 +72,12 @@ class ContractState(StatesGroup):
     player_nick = State()
     sign_date = State()
 
+class RentPlayerState(StatesGroup):
+    club = State()
+    player_nick = State()
+    matches = State()
+    rent_date = State()
+
 class ModerationState(StatesGroup):
     waiting_decline_reason = State()
 
@@ -88,7 +94,8 @@ def get_main_menu():
          InlineKeyboardButton(text="⏸️ Приост. карьеры", callback_data="pause_career")],
         [InlineKeyboardButton(text="🏆 Поиск товы", callback_data="find_tour"),
          InlineKeyboardButton(text="🔎 Поиск игроков", callback_data="find_players")],
-        [InlineKeyboardButton(text="📝 Система контрактов", callback_data="contract_system")],
+        [InlineKeyboardButton(text="📝 Система контрактов", callback_data="contract_system"),
+         InlineKeyboardButton(text="🔄 Аренда игрока", callback_data="rent_player")],
         [InlineKeyboardButton(text="🛠️ Техподдержка", callback_data="support"),
          InlineKeyboardButton(text="📢 Жалобы", callback_data="complaints")]
     ]
@@ -128,7 +135,6 @@ def get_mod_display(user: types.User) -> str:
 
 # --- ОТПРАВКА ЗАЯВКИ ---
 async def send_application(user: types.User, text: str, include_contact: bool = True):
-    # Проверка рабочих часов
     if not is_working_hours():
         try:
             await bot.send_message(
@@ -380,7 +386,7 @@ async def process_cp_new(message: types.Message, state: FSMContext):
     await send_application(message.from_user, post_text)
     await state.clear()
 
-# --- ЗАВЕРШЕНИЕ КАРЬЕРЫ (только P.S., без "Писать") ---
+# --- ЗАВЕРШЕНИЕ КАРЬЕРЫ (только P.S.) ---
 @dp.callback_query(F.data == "end_career", F.message.chat.type == ChatType.PRIVATE)
 async def start_end_career(callback: types.CallbackQuery, state: FSMContext):
     nick = get_auto_nick(callback.from_user)
@@ -508,6 +514,49 @@ async def process_ct_date(message: types.Message, state: FSMContext):
         f"Клуб: {data.get('club')}\n"
         f"Никнейм игрока: {data.get('player_nick')}\n"
         f"Дата подписания: {message.text}"
+    )
+    await send_application(message.from_user, post_text)
+    await state.clear()
+
+# --- АРЕНДА ИГРОКА ---
+@dp.callback_query(F.data == "rent_player", F.message.chat.type == ChatType.PRIVATE)
+async def start_rent_player(callback: types.CallbackQuery, state: FSMContext):
+    nick = get_auto_nick(callback.from_user)
+    await state.update_data(nickname=nick)
+    await callback.message.answer(
+        f"✅ Ваш ник: <b>{nick}</b>\n\n🔄 <b>Аренда игрока</b>\n\nНапишите название вашего клуба:",
+        parse_mode="HTML"
+    )
+    await state.set_state(RentPlayerState.club)
+    await callback.answer()
+
+@dp.message(RentPlayerState.club, F.chat.type == ChatType.PRIVATE)
+async def process_rp_club(message: types.Message, state: FSMContext):
+    await state.update_data(club=message.text)
+    await message.answer("Напишите никнейм вашего арендованного игрока:")
+    await state.set_state(RentPlayerState.player_nick)
+
+@dp.message(RentPlayerState.player_nick, F.chat.type == ChatType.PRIVATE)
+async def process_rp_player(message: types.Message, state: FSMContext):
+    await state.update_data(player_nick=message.text)
+    await message.answer("На сколько матчей он арендован?")
+    await state.set_state(RentPlayerState.matches)
+
+@dp.message(RentPlayerState.matches, F.chat.type == ChatType.PRIVATE)
+async def process_rp_matches(message: types.Message, state: FSMContext):
+    await state.update_data(matches=message.text)
+    await message.answer("Когда вы его арендовали? (например, 26.09.2026)")
+    await state.set_state(RentPlayerState.rent_date)
+
+@dp.message(RentPlayerState.rent_date, F.chat.type == ChatType.PRIVATE)
+async def process_rp_date(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    post_text = (
+        f"🔄 <b>Аренда игрока</b>\n\n"
+        f"Клуб: {data.get('club')}\n"
+        f"Никнейм игрока: {data.get('player_nick')}\n"
+        f"Количество матчей: {data.get('matches')}\n"
+        f"Дата аренды: {message.text}"
     )
     await send_application(message.from_user, post_text)
     await state.clear()
