@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from datetime import datetime, timezone, timedelta
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -15,9 +16,21 @@ GROUP_ID = -1004371804499
 CHANNEL_ID = "@RssTransfeer"
 MODERATORS = "@Tot_samiy_onet, @meelviks"
 
+# --- РАБОЧИЕ ЧАСЫ ---
+WORK_START = 7    # 7:00
+WORK_END = 23     # 23:00
+MSK = timezone(timedelta(hours=3))  # Москва (UTC+3)
+
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
+def is_working_hours() -> bool:
+    now = datetime.now(MSK)
+    return WORK_START <= now.hour < WORK_END
+
+def work_hours_text() -> str:
+    return f"📅 Расписание работы: <b>{WORK_START}:00–{WORK_END}:00 (МСК)</b>"
 
 # --- СОСТОЯНИЯ (FSM) ---
 class FreeAgentState(StatesGroup):
@@ -37,8 +50,7 @@ class ChangePosState(StatesGroup):
     new_pos = State()
 
 class EndCareerState(StatesGroup):
-    reason = State()
-    position = State()
+    ps = State()
 
 class ReturnCareerState(StatesGroup):
     ps = State()
@@ -54,6 +66,11 @@ class FindTourState(StatesGroup):
 
 class FindPlayersState(StatesGroup):
     requirement = State()
+
+class ContractState(StatesGroup):
+    club = State()
+    player_nick = State()
+    sign_date = State()
 
 class ModerationState(StatesGroup):
     waiting_decline_reason = State()
@@ -71,6 +88,7 @@ def get_main_menu():
          InlineKeyboardButton(text="⏸️ Приост. карьеры", callback_data="pause_career")],
         [InlineKeyboardButton(text="🏆 Поиск товы", callback_data="find_tour"),
          InlineKeyboardButton(text="🔎 Поиск игроков", callback_data="find_players")],
+        [InlineKeyboardButton(text="📝 Система контрактов", callback_data="contract_system")],
         [InlineKeyboardButton(text="🛠️ Техподдержка", callback_data="support"),
          InlineKeyboardButton(text="📢 Жалобы", callback_data="complaints")]
     ]
@@ -80,7 +98,8 @@ def get_main_menu():
 @dp.message(CommandStart(), F.chat.type == ChatType.PRIVATE)
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer("Выбери категорию:", reply_markup=get_main_menu())
+    status = "" if is_working_hours() else f"\n\n❗ <b>Бот закончил работу на сегодня.</b>\n{work_hours_text()}"
+    await message.answer(f"Выбери категорию:{status}", parse_mode="HTML", reply_markup=get_main_menu())
 
 @dp.message(Command("id"))
 async def cmd_id(message: types.Message):
@@ -102,15 +121,39 @@ def get_author_contact(user: types.User) -> str:
         return f"@{user.username}"
     return f'<a href="tg://user?id={user.id}">{user.full_name}</a>'
 
+def get_mod_display(user: types.User) -> str:
+    if user.username:
+        return f"@{user.username}"
+    return user.full_name
+
 # --- ОТПРАВКА ЗАЯВКИ ---
-async def send_application(user: types.User, text: str):
+async def send_application(user: types.User, text: str, include_contact: bool = True):
+    # Проверка рабочих часов
+    if not is_working_hours():
+        try:
+            await bot.send_message(
+                chat_id=user.id,
+                text=(
+                    f"❗ <b>Бот закончил работу на сегодня.</b>\n\n"
+                    f"{work_hours_text()}\n\n"
+                    f"Ваша заявка не была отправлена. Пожалуйста, попробуйте в рабочее время."
+                ),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logging.error(f"Не удалось уведомить пользователя {user.id}: {e}")
+        return
+    
     contact = get_author_contact(user)
     
-    full_text = (
-        f"{text}\n\n"
-        f"📝 <b>Писать:</b> {contact}\n\n"
-        f"📩 <b>Модераторы:</b> {MODERATORS}"
-    )
+    if include_contact:
+        full_text = (
+            f"{text}\n\n"
+            f"📝 <b>Писать:</b> {contact}\n\n"
+            f"📩 <b>Модераторы:</b> {MODERATORS}"
+        )
+    else:
+        full_text = f"{text}\n\n📩 <b>Модераторы:</b> {MODERATORS}"
     
     mod_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Принять", callback_data=f"mod_accept_{user.id}"),
@@ -139,6 +182,7 @@ async def send_application(user: types.User, text: str):
 @dp.callback_query(F.data.startswith("mod_accept_"), F.message.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def mod_accept(callback: types.CallbackQuery):
     user_id = int(callback.data.replace("mod_accept_", ""))
+    mod_display = get_mod_display(callback.from_user)
     
     try:
         user_info = await bot.get_chat(user_id)
@@ -150,16 +194,19 @@ async def mod_accept(callback: types.CallbackQuery):
         logging.error(f"Не удалось получить инфо о пользователе {user_id}: {e}")
         contact = f"ID: {user_id}"
     
-    if callback.message.text:
-        original_text = callback.message.text
+    original_text = callback.message.text or ""
+    has_contact = "📝 Писать:" in original_text
+    
+    if has_contact:
         clean_text = original_text.split("\n\n📝 Писать:")[0]
+        channel_post = f"{clean_text}\n\n📝 <b>Писать:</b> {contact}"
     else:
-        clean_text = "Заявка"
+        clean_text = original_text.split("\n\n📩 Модераторы:")[0]
+        channel_post = clean_text
     
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.reply(f"✅ Принято модератором {callback.from_user.full_name}")
+    await callback.message.reply(f"✅ Принято модератором {mod_display}")
     
-    channel_post = f"{clean_text}\n\n📝 <b>Писать:</b> {contact}"
     try:
         await bot.send_message(chat_id=CHANNEL_ID, text=channel_post, parse_mode="HTML")
         logging.info(f"Заявка опубликована в канал {CHANNEL_ID}")
@@ -181,44 +228,36 @@ async def mod_accept(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("mod_decline_"), F.message.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def mod_decline(callback: types.CallbackQuery, state: FSMContext):
     user_id = int(callback.data.replace("mod_decline_", ""))
+    mod_display = get_mod_display(callback.from_user)
     
-    if callback.message.text:
-        original_text = callback.message.text
+    original_text = callback.message.text or ""
+    if "📝 Писать:" in original_text:
         clean_text = original_text.split("\n\n📝 Писать:")[0]
     else:
-        clean_text = "Заявка"
+        clean_text = original_text.split("\n\n📩 Модераторы:")[0]
     
     await callback.message.edit_reply_markup(reply_markup=None)
-    
-    # ⚠️ ВАЖНО: сохраняем ID сообщения, которое СЕЙЧАС отправим
-    sent_msg = await callback.message.reply(
-        f"❌ <b>Отклонено модератором {callback.from_user.full_name}.</b>\n\n"
-        f"Напишите причину отказа <b>ответом (reply)</b> на ЭТО сообщение — она будет отправлена автору заявки.",
-        parse_mode="HTML"
-    )
     
     await state.update_data(
         author_id=user_id,
         clean_text=clean_text,
-        decline_msg_id=sent_msg.message_id
+        mod_display=mod_display
     )
     await state.set_state(ModerationState.waiting_decline_reason)
-    await callback.answer("Напишите причину отказа (reply)")
+    
+    await callback.message.reply(
+        f"❌ <b>Отклонено модератором {mod_display}.</b>\n\n"
+        f"✍️ Напишите причину отказа <b>следующим сообщением</b> в чат.",
+        parse_mode="HTML"
+    )
+    await callback.answer("Напишите причину следующим сообщением")
 
 @dp.message(ModerationState.waiting_decline_reason, F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 async def process_decline_reason(message: types.Message, state: FSMContext):
     data = await state.get_data()
     author_id = data.get("author_id")
     clean_text = data.get("clean_text", "Заявка")
-    decline_msg_id = data.get("decline_msg_id")
-    
-    # Проверяем, что это reply на НАШЕ сообщение с запросом причины
-    if not message.reply_to_message or message.reply_to_message.message_id != decline_msg_id:
-        await message.reply(
-            "⚠️ Пожалуйста, напишите причину отказа <b>ответом (reply)</b> на сообщение выше.",
-            parse_mode="HTML"
-        )
-        return
+    mod_display = data.get("mod_display", "модератор")
     
     reason = message.text or "Без указания причины"
     await state.clear()
@@ -229,6 +268,7 @@ async def process_decline_reason(message: types.Message, state: FSMContext):
             text=f"❌ <b>Ваша заявка отклонена.</b>\n\n"
                  f"<b>Заявка:</b>\n{clean_text}\n\n"
                  f"<b>Причина отказа:</b> {reason}\n\n"
+                 f"<b>Модератор:</b> {mod_display}\n\n"
                  f"Если вы не согласны — свяжитесь с модераторами: {MODERATORS}",
             parse_mode="HTML"
         )
@@ -299,7 +339,7 @@ async def process_tr_pos(message: types.Message, state: FSMContext):
     await send_application(message.from_user, post_text)
     await state.clear()
 
-# --- СМЕНА НИКНЕЙМА (только новый ник) ---
+# --- СМЕНА НИКНЕЙМА ---
 @dp.callback_query(F.data == "change_nick", F.message.chat.type == ChatType.PRIVATE)
 async def start_change_nick(callback: types.CallbackQuery, state: FSMContext):
     nick = get_auto_nick(callback.from_user)
@@ -340,26 +380,23 @@ async def process_cp_new(message: types.Message, state: FSMContext):
     await send_application(message.from_user, post_text)
     await state.clear()
 
-# --- ЗАВЕРШЕНИЕ КАРЬЕРЫ ---
+# --- ЗАВЕРШЕНИЕ КАРЬЕРЫ (только P.S., без "Писать") ---
 @dp.callback_query(F.data == "end_career", F.message.chat.type == ChatType.PRIVATE)
 async def start_end_career(callback: types.CallbackQuery, state: FSMContext):
     nick = get_auto_nick(callback.from_user)
     await state.update_data(nickname=nick)
-    await callback.message.answer(f"✅ Ваш ник: <b>{nick}</b>\n\nПочему решили завершить карьеру?", parse_mode="HTML")
-    await state.set_state(EndCareerState.reason)
+    await callback.message.answer(
+        f"✅ Ваш ник: <b>{nick}</b>\n\nНапишите <b>P.S.</b>:",
+        parse_mode="HTML"
+    )
+    await state.set_state(EndCareerState.ps)
     await callback.answer()
 
-@dp.message(EndCareerState.reason, F.chat.type == ChatType.PRIVATE)
-async def process_ec_reason(message: types.Message, state: FSMContext):
-    await state.update_data(reason=message.text)
-    await message.answer("На какой позиции вы играли?")
-    await state.set_state(EndCareerState.position)
-
-@dp.message(EndCareerState.position, F.chat.type == ChatType.PRIVATE)
-async def process_ec_pos(message: types.Message, state: FSMContext):
+@dp.message(EndCareerState.ps, F.chat.type == ChatType.PRIVATE)
+async def process_ec_ps(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    post_text = f"🏁 <b>Завершение карьеры</b>\n\nНик: {data.get('nickname')}\nПричина: {data.get('reason')}\nПозиция: {message.text}"
-    await send_application(message.from_user, post_text)
+    post_text = f"🏁 <b>Завершение карьеры</b>\n\nНик: {data.get('nickname')}\nP.S: {message.text}"
+    await send_application(message.from_user, post_text, include_contact=False)
     await state.clear()
 
 # --- ВОЗВРАЩЕНИЕ КАРЬЕРЫ ---
@@ -439,6 +476,42 @@ async def process_fp_req(message: types.Message, state: FSMContext):
     await send_application(message.from_user, post_text)
     await state.clear()
 
+# --- СИСТЕМА КОНТРАКТОВ ---
+@dp.callback_query(F.data == "contract_system", F.message.chat.type == ChatType.PRIVATE)
+async def start_contract(callback: types.CallbackQuery, state: FSMContext):
+    nick = get_auto_nick(callback.from_user)
+    await state.update_data(nickname=nick)
+    await callback.message.answer(
+        f"✅ Ваш ник: <b>{nick}</b>\n\n📝 <b>Система контрактов</b>\n\nВведите название вашего клуба:",
+        parse_mode="HTML"
+    )
+    await state.set_state(ContractState.club)
+    await callback.answer()
+
+@dp.message(ContractState.club, F.chat.type == ChatType.PRIVATE)
+async def process_ct_club(message: types.Message, state: FSMContext):
+    await state.update_data(club=message.text)
+    await message.answer("Введите никнейм игрока, которого вы подписали:")
+    await state.set_state(ContractState.player_nick)
+
+@dp.message(ContractState.player_nick, F.chat.type == ChatType.PRIVATE)
+async def process_ct_player(message: types.Message, state: FSMContext):
+    await state.update_data(player_nick=message.text)
+    await message.answer("Введите дату подписания контракта (например, 26.09.2026):")
+    await state.set_state(ContractState.sign_date)
+
+@dp.message(ContractState.sign_date, F.chat.type == ChatType.PRIVATE)
+async def process_ct_date(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    post_text = (
+        f"📝 <b>Система контрактов</b>\n\n"
+        f"Клуб: {data.get('club')}\n"
+        f"Никнейм игрока: {data.get('player_nick')}\n"
+        f"Дата подписания: {message.text}"
+    )
+    await send_application(message.from_user, post_text)
+    await state.clear()
+
 # --- КУПИТЬ РЕКЛАМУ ---
 @dp.callback_query(F.data == "buy_ad", F.message.chat.type == ChatType.PRIVATE)
 async def process_buy_ad(callback: types.CallbackQuery):
@@ -484,6 +557,7 @@ async def main():
     logging.info(f"Веб-сервер запущен на порту {PORT}")
     logging.info(f"GROUP_ID = {GROUP_ID}")
     logging.info(f"CHANNEL_ID = {CHANNEL_ID}")
+    logging.info(f"Рабочие часы: {WORK_START}:00–{WORK_END}:00 МСК")
 
     logging.info("Запуск бота...")
     await dp.start_polling(bot)
