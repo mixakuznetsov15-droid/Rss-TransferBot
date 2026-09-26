@@ -14,7 +14,7 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PORT = int(os.getenv("PORT", 8080))
 GROUP_ID = -1004371804499
 CHANNEL_ID = "@RssTransfeer"
-MODERATORS = "@Tot_samiy_onet, @meelviks"
+MODERATORS = "@Rohalduy, @meelviks"
 
 # --- РАБОЧИЕ ЧАСЫ ---
 WORK_START = 7    # 7:00
