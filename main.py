@@ -8,7 +8,7 @@ import sqlite3
 from datetime import datetime, timezone, timedelta
 
 import matplotlib
-matplotlib.use("Agg")  # без GUI
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -49,7 +49,7 @@ class TrainerState(StatesGroup):
     waiting_answer = State()
 
 
-# ─────────────────────── БАЗА ДАННЫХ (для тренажёра) ───────────────────────
+# ─────────────────────── БАЗА ДАННЫХ ───────────────────────
 def db_init():
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
@@ -87,7 +87,7 @@ def db_update_score(user_id: int, username: str, correct_inc: int = 0, wrong_inc
     con.close()
 
 
-# ─────────────────────── БЕЗОПАСНЫЙ КАЛЬКУЛЯТОР ───────────────────────
+# ─────────────────────── КАЛЬКУЛЯТОР ───────────────────────
 ALLOWED_NAMES = {k: v for k, v in math.__dict__.items() if not k.startswith("_")}
 ALLOWED_NAMES.update({"abs": abs, "round": round, "min": min, "max": max})
 
@@ -105,58 +105,166 @@ def safe_eval(expr: str) -> float:
     return eval(code, {"__builtins__": {}}, ALLOWED_NAMES)
 
 
-# ─────────────────────── КЛАВИАТУРА ───────────────────────
-def main_kb() -> InlineKeyboardMarkup:
+# ─────────────────────── КЛАВИАТУРЫ ───────────────────────
+def main_menu_kb() -> InlineKeyboardMarkup:
+    """Главное меню — разделы."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🧮 Калькулятор", callback_data="help_calc"),
-            InlineKeyboardButton(text="🔢 Простое", callback_data="help_prime"),
+            InlineKeyboardButton(text="🧮 Калькулятор и числа", callback_data="cat_numbers"),
         ],
         [
-            InlineKeyboardButton(text="❗ Факториал", callback_data="help_fact"),
-            InlineKeyboardButton(text="🌀 Фибоначчи", callback_data="help_fib"),
+            InlineKeyboardButton(text="📐 Уравнения и системы", callback_data="cat_equations"),
         ],
         [
-            InlineKeyboardButton(text="🔗 НОД / НОК", callback_data="help_gcd"),
-            InlineKeyboardButton(text="📐 Квадратное", callback_data="help_quad"),
+            InlineKeyboardButton(text="📊 Графики и функции", callback_data="cat_plots"),
         ],
         [
-            InlineKeyboardButton(text="⚡ Степень", callback_data="help_pow"),
-            InlineKeyboardButton(text="√ Корень", callback_data="help_sqrt"),
+            InlineKeyboardButton(text="🌍 Перевод систем счисления", callback_data="cat_bases"),
         ],
         [
-            InlineKeyboardButton(text="🎲 Случайное", callback_data="help_rand"),
-            InlineKeyboardButton(text="📊 График", callback_data="help_plot"),
+            InlineKeyboardButton(text="🧠 Тренажёр и счёт", callback_data="cat_trainer"),
         ],
         [
-            InlineKeyboardButton(text="📏 Система ур.", callback_data="help_system"),
-            InlineKeyboardButton(text="🌍 Системы счисления", callback_data="help_base"),
-        ],
-        [
-            InlineKeyboardButton(text="🧠 Тренажёр", callback_data="help_trainer"),
-            InlineKeyboardButton(text="🏆 Мой счёт", callback_data="help_score"),
+            InlineKeyboardButton(text="ℹ️ Помощь", callback_data="help_main"),
         ],
     ])
 
 
-HELP_TEXT = (
-    "🧮 <b>MathBot</b> — твой помощник в математике\n\n"
-    "<b>Команды:</b>\n"
-    "• <code>/calc 2+2*2</code> — вычислить\n"
+def numbers_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🧮 /calc", callback_data="help_calc"),
+            InlineKeyboardButton(text="🔢 /prime", callback_data="help_prime"),
+        ],
+        [
+            InlineKeyboardButton(text="❗ /fact", callback_data="help_fact"),
+            InlineKeyboardButton(text="🌀 /fib", callback_data="help_fib"),
+        ],
+        [
+            InlineKeyboardButton(text="🔗 /gcd", callback_data="help_gcd"),
+            InlineKeyboardButton(text="⚡ /pow", callback_data="help_pow"),
+        ],
+        [
+            InlineKeyboardButton(text="√ /sqrt", callback_data="help_sqrt"),
+            InlineKeyboardButton(text="🎲 /rand", callback_data="help_rand"),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main"),
+        ],
+    ])
+
+
+def equations_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📐 /quad", callback_data="help_quad"),
+            InlineKeyboardButton(text="📏 /system", callback_data="help_system"),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main"),
+        ],
+    ])
+
+
+def plots_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="📊 /plot", callback_data="help_plot"),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main"),
+        ],
+    ])
+
+
+def bases_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🌍 /base", callback_data="help_base"),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main"),
+        ],
+    ])
+
+
+def trainer_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🧠 /trainer", callback_data="help_trainer"),
+            InlineKeyboardButton(text="🏆 /score", callback_data="help_score"),
+        ],
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main"),
+        ],
+    ])
+
+
+def back_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+    ])
+
+
+# ─────────────────────── ТЕКСТЫ ───────────────────────
+def greeting(name: str) -> str:
+    return (
+        f"👋 <b>Приветствую, {name}!</b>\n\n"
+        f"🧮 Я — <b>MathBot</b>, твой личный помощник в математике.\n\n"
+        f"Выбери раздел ниже 👇"
+    )
+
+
+MENU_TEXT = (
+    "📚 <b>Главное меню MathBot</b>\n\n"
+    "Выбери раздел:"
+)
+
+NUMBERS_TEXT = (
+    "🧮 <b>Калькулятор и числа</b>\n\n"
+    "• <code>/calc 2+2*2</code> — вычислить выражение\n"
     "• <code>/prime 17</code> — простое ли число\n"
     "• <code>/fact 5</code> — факториал\n"
     "• <code>/fib 10</code> — число Фибоначчи\n"
     "• <code>/gcd 12 18</code> — НОД и НОК\n"
-    "• <code>/quad 1 -5 6</code> — корни ax²+bx+c=0\n"
     "• <code>/pow 2 10</code> — степень\n"
     "• <code>/sqrt 144</code> — корень\n"
-    "• <code>/rand 1 100</code> — случайное число\n"
-    "• <code>/plot x^2 - 5 5</code> — график функции\n"
-    "• <code>/system x+y=5; x-y=1</code> — система уравнений\n"
-    "• <code>/base 255 16</code> — перевод в 16-ричную\n"
-    "• <code>/trainer</code> — тренажёр\n"
-    "• <code>/score</code> — мой счёт\n"
-    "• <code>/stop</code> — выйти из тренажёра\n\n"
+    "• <code>/rand 1 100</code> — случайное число"
+)
+
+EQUATIONS_TEXT = (
+    "📐 <b>Уравнения и системы</b>\n\n"
+    "• <code>/quad 1 -5 6</code> — корни ax²+bx+c=0\n"
+    "• <code>/system x+y=5; x-y=1</code> — система уравнений"
+)
+
+PLOTS_TEXT = (
+    "📊 <b>Графики и функции</b>\n\n"
+    "• <code>/plot x^2 -5 5</code> — график y = x²\n"
+    "• <code>/plot sin(x) -6.28 6.28</code> — синусоида\n\n"
+    "Первый аргумент — выражение, потом xmin и xmax."
+)
+
+BASES_TEXT = (
+    "🌍 <b>Системы счисления</b>\n\n"
+    "• <code>/base 255 16</code> → FF\n"
+    "• <code>/base ff 10</code> → 255\n\n"
+    "Основание от 2 до 36."
+)
+
+TRAINER_TEXT = (
+    "🧠 <b>Тренажёр и счёт</b>\n\n"
+    "• <code>/trainer</code> — начать тренировку\n"
+    "• <code>/score</code> — посмотреть свой счёт\n"
+    "• <code>/stop</code> — выйти из тренажёра"
+)
+
+HELP_TEXT = (
+    "ℹ️ <b>Справка по MathBot</b>\n\n"
+    "<b>Команды:</b>\n"
+    "/calc /prime /fact /fib /gcd /pow /sqrt /rand\n"
+    "/quad /system /plot /base\n"
+    "/trainer /score /stop\n\n"
     "💡 <i>Поддерживаются:</i> + − * / ** sqrt sin cos log pi e"
 )
 
@@ -166,15 +274,25 @@ HELP_TEXT = (
 async def cmd_start(message: Message):
     name = message.from_user.first_name or "друг"
     await message.answer(
-        f"👋 Привет, <b>{name}</b>!\n\n{HELP_TEXT}",
+        greeting(name),
         parse_mode="HTML",
-        reply_markup=main_kb(),
+        reply_markup=main_menu_kb(),
+    )
+
+
+@dp.message(Command("menu"))
+async def cmd_menu(message: Message):
+    name = message.from_user.first_name or "друг"
+    await message.answer(
+        f"👋 <b>{name}</b>, вот меню:\n\n{MENU_TEXT}",
+        parse_mode="HTML",
+        reply_markup=main_menu_kb(),
     )
 
 
 @dp.message(Command("help"))
 async def cmd_help(message: Message):
-    await message.answer(HELP_TEXT, parse_mode="HTML", reply_markup=main_kb())
+    await message.answer(HELP_TEXT, parse_mode="HTML", reply_markup=back_kb())
 
 
 # ─── /calc ───
@@ -202,7 +320,6 @@ async def cmd_prime(message: Message):
         n = int(args[1])
     except ValueError:
         return await message.answer("❌ Нужно целое число.")
-
     if n < 2:
         return await message.answer(f"❌ {n} — не простое.")
     is_prime = all(n % i != 0 for i in range(2, int(n ** 0.5) + 1))
@@ -281,10 +398,8 @@ async def cmd_quad(message: Message):
         a, b, c = float(args[1]), float(args[2]), float(args[3])
     except ValueError:
         return await message.answer("❌ Коэффициенты — числа.")
-
     if a == 0:
         return await message.answer("❌ a ≠ 0.")
-
     d = b * b - 4 * a * c
     text = f"📐 <b>{a}x² + {b}x + {c} = 0</b>\n\nD = <b>{d}</b>\n\n"
     if d > 0:
@@ -351,10 +466,6 @@ async def cmd_rand(message: Message):
 # ─── /plot ───
 @dp.message(Command("plot"))
 async def cmd_plot(message: Message):
-    """
-    /plot x^2 -5 5
-    /plot sin(x) -3.14 3.14
-    """
     args = message.text.split(maxsplit=3)
     if len(args) < 4:
         return await message.answer(
@@ -369,11 +480,9 @@ async def cmd_plot(message: Message):
         xmax = float(args[3])
     except ValueError:
         return await message.answer("❌ Границы — числа.")
-
     if xmin >= xmax:
         return await message.answer("❌ xmin < xmax.")
 
-    # Считаем в отдельном потоке, чтобы не блокировать loop
     def render():
         x = np.linspace(xmin, xmax, 1000)
         ns = {"x": x, "np": np, "sin": np.sin, "cos": np.cos,
@@ -383,15 +492,13 @@ async def cmd_plot(message: Message):
             y = eval(expr_str, {"__builtins__": {}}, ns)
         except Exception as e:
             raise ValueError(f"Не удалось вычислить: {e}")
-
         fig, ax = plt.subplots(figsize=(7, 4.5), dpi=120)
         ax.plot(x, y, color="#1f77b4", linewidth=2)
         ax.axhline(0, color="black", linewidth=0.5)
         ax.axvline(0, color="black", linewidth=0.5)
         ax.grid(True, alpha=0.3)
         ax.set_title(f"y = {expr_str}")
-        ax.set_xlabel("x")
-        ax.set_ylabel("y")
+        ax.set_xlabel("x"); ax.set_ylabel("y")
         buf = io.BytesIO()
         fig.tight_layout()
         fig.savefig(buf, format="png")
@@ -411,56 +518,39 @@ async def cmd_plot(message: Message):
 # ─── /system ───
 @dp.message(Command("system"))
 async def cmd_system(message: Message):
-    """
-    /system x+y=5; x-y=1
-    Уравнения через ; (точку с запятой)
-    """
     args = message.text.split(maxsplit=1)
     if len(args) < 2:
         return await message.answer(
-            "📝 <code>/system x+y=5; x-y=1</code>\n"
-            "Разделяй уравнения через <b>;</b>",
+            "📝 <code>/system x+y=5; x-y=1</code>\nРазделяй через <b>;</b>",
             parse_mode="HTML",
         )
-    raw = args[1]
-    parts = [p.strip() for p in raw.split(";") if p.strip()]
+    parts = [p.strip() for p in args[1].split(";") if p.strip()]
     if len(parts) < 2:
-        return await message.answer("❌ Нужно минимум 2 уравнения через ;")
-
+        return await message.answer("❌ Минимум 2 уравнения через ;")
     try:
-        # Собираем символы из строк
         eqs = []
         symbols = set()
         for p in parts:
             if "=" not in p:
                 return await message.answer(f"❌ Нет '=' в: <code>{p}</code>", parse_mode="HTML")
             left, right = p.split("=", 1)
-            # Заменяем ^ на **
-            left = left.replace("^", "**")
-            right = right.replace("^", "**")
-            # Собираем имена переменных
+            left = left.replace("^", "**"); right = right.replace("^", "**")
             for token in sp.tokenizer.tokenize(left + "+" + right):
                 s = str(token)
                 if s.isidentifier() and s not in {"sin", "cos", "tan", "log", "sqrt", "exp"}:
                     symbols.add(s)
             eqs.append(sp.Eq(sp.sympify(left), sp.sympify(right)))
-
         syms = sorted(symbols, key=str)
         sym_objs = sp.symbols(" ".join(syms))
         if not isinstance(sym_objs, tuple):
             sym_objs = (sym_objs,)
-
         solution = sp.solve(eqs, sym_objs, dict=True)
-
         if not solution:
             return await message.answer("❌ Решений нет.")
-        if isinstance(solution, list):
-            lines = []
-            for sol in solution:
-                lines.append(", ".join(f"{k} = {v}" for k, v in sol.items()))
-            text = "📏 <b>Решение системы:</b>\n\n" + "\n".join(lines)
-        else:
-            text = f"📏 <b>Решение:</b>\n{solution}"
+        lines = []
+        for sol in solution:
+            lines.append(", ".join(f"{k} = {v}" for k, v in sol.items()))
+        text = "📏 <b>Решение системы:</b>\n\n" + "\n".join(lines)
         await message.answer(text, parse_mode="HTML")
     except Exception as e:
         await message.answer(f"❌ Ошибка: <code>{e}</code>", parse_mode="HTML")
@@ -469,18 +559,12 @@ async def cmd_system(message: Message):
 # ─── /base ───
 @dp.message(Command("base"))
 async def cmd_base(message: Message):
-    """
-    /base 255 16   → перевести 255 в 16-ричную
-    /base ff 10    → из 16-ричной в 10-чную
-    Основание от 2 до 36.
-    """
     args = message.text.split()
     if len(args) < 3:
         return await message.answer(
             "📝 <code>/base число основание</code>\n"
             "Пример: <code>/base 255 16</code> → FF\n"
-            "Пример: <code>/base ff 10</code> → 255\n"
-            "Основание от 2 до 36.",
+            "Пример: <code>/base ff 10</code> → 255",
             parse_mode="HTML",
         )
     num_str = args[1].lower()
@@ -490,9 +574,6 @@ async def cmd_base(message: Message):
         return await message.answer("❌ Основание — число от 2 до 36.")
     if not (2 <= target_base <= 36):
         return await message.answer("❌ Основание от 2 до 36.")
-
-    # Пробуем распарсить число. Сначала как десятичное,
-    # если не выходит — пробуем по префиксам/буквам.
     value = None
     try:
         value = int(num_str, 10)
@@ -503,11 +584,8 @@ async def cmd_base(message: Message):
                 break
             except ValueError:
                 continue
-
     if value is None:
         return await message.answer("❌ Не могу распарсить число.")
-
-    # Перевод
     digits = "0123456789abcdefghijklmnopqrstuvwxyz"
     if value == 0:
         result = "0"
@@ -521,7 +599,6 @@ async def cmd_base(message: Message):
         result = "".join(reversed(out))
         if negative:
             result = "-" + result
-
     await message.answer(
         f"🌍 <b>{num_str}</b> (10) → <b>{result.upper()}</b> (основание {target_base})",
         parse_mode="HTML",
@@ -538,12 +615,10 @@ async def cmd_trainer(message: Message, state: FSMContext):
     if op == "+":
         answer = a + b
     elif op == "-":
-        if a < b:
-            a, b = b, a
+        if a < b: a, b = b, a
         answer = a - b
     else:
         answer = a * b
-
     await state.update_data(answer=answer)
     await state.set_state(TrainerState.waiting_answer)
     await message.answer(
@@ -556,7 +631,7 @@ async def cmd_trainer(message: Message, state: FSMContext):
 @dp.message(Command("stop"))
 async def cmd_stop(message: Message, state: FSMContext):
     await state.clear()
-    await message.answer("🚪 Вышел из тренажёра.")
+    await message.answer("🚪 Вышел из тренажёра.", reply_markup=back_kb())
 
 
 @dp.message(TrainerState.waiting_answer, F.chat.type == ChatType.PRIVATE)
@@ -567,32 +642,23 @@ async def trainer_answer(message: Message, state: FSMContext):
         user_answer = int(message.text.strip())
     except (ValueError, AttributeError):
         return await message.answer("❌ Нужно число. Или /stop.")
-
     if user_answer == correct:
         db_update_score(message.from_user.id, message.from_user.username or "", correct_inc=1)
         await message.answer("✅ Верно!")
     else:
         db_update_score(message.from_user.id, message.from_user.username or "", wrong_inc=1)
         await message.answer(f"❌ Неверно. Правильный ответ: <b>{correct}</b>", parse_mode="HTML")
-
-    # Следующий вопрос
-    a = random.randint(1, 20)
-    b = random.randint(1, 20)
+    a = random.randint(1, 20); b = random.randint(1, 20)
     op = random.choice(["+", "-", "*"])
     if op == "+":
         answer = a + b
     elif op == "-":
-        if a < b:
-            a, b = b, a
+        if a < b: a, b = b, a
         answer = a - b
     else:
         answer = a * b
-
     await state.update_data(answer=answer)
-    await message.answer(
-        f"➡️ Следующий: <b>{a} {op} {b}</b>?",
-        parse_mode="HTML",
-    )
+    await message.answer(f"➡️ Следующий: <b>{a} {op} {b}</b>?", parse_mode="HTML")
 
 
 @dp.message(Command("score"))
@@ -609,26 +675,82 @@ async def cmd_score(message: Message):
     )
 
 
-# ─────────────────────── CALLBACK-КНОПКИ ───────────────────────
+# ─────────────────────── CALLBACK: КНОПКИ МЕНЮ ───────────────────────
+HELP_MESSAGES = {
+    "help_calc":   "🧮 <b>Калькулятор</b>\n\n<code>/calc 2+2*2</code>\n<code>/calc sqrt(16) + sin(0)</code>\n<code>/calc 2**10</code>",
+    "help_prime":  "🔢 <b>Простое число</b>\n\n<code>/prime 17</code>",
+    "help_fact":   "❗ <b>Факториал</b>\n\n<code>/fact 5</code> → 120",
+    "help_fib":    "🌀 <b>Фибоначчи</b>\n\n<code>/fib 10</code> → 55",
+    "help_gcd":    "🔗 <b>НОД / НОК</b>\n\n<code>/gcd 12 18</code>",
+    "help_pow":    "⚡ <b>Степень</b>\n\n<code>/pow 2 10</code> → 1024",
+    "help_sqrt":   "√ <b>Корень</b>\n\n<code>/sqrt 144</code> → 12",
+    "help_rand":   "🎲 <b>Случайное</b>\n\n<code>/rand 1 100</code>",
+    "help_quad":   "📐 <b>Квадратное</b>\n\n<code>/quad 1 -5 6</code>",
+    "help_system": "📏 <b>Система ур.</b>\n\n<code>/system x+y=5; x-y=1</code>\nРазделяй через <b>;</b>",
+    "help_plot":   "📊 <b>График</b>\n\n<code>/plot x^2 -5 5</code>\n<code>/plot sin(x) -6.28 6.28</code>",
+    "help_base":   "🌍 <b>Системы счисления</b>\n\n<code>/base 255 16</code> → FF\n<code>/base ff 10</code> → 255",
+    "help_trainer":"🧠 <b>Тренажёр</b>\n\n<code>/trainer</code> — начать\n<code>/stop</code> — выход",
+    "help_score":  "🏆 <b>Мой счёт</b>\n\n<code>/score</code>",
+    "help_main":   HELP_TEXT,
+}
+
+
+def section_kb_for(data: str) -> InlineKeyboardMarkup:
+    """Возвращает нужную клавиатуру для раздела."""
+    if data == "cat_numbers":   return numbers_kb()
+    if data == "cat_equations": return equations_kb()
+    if data == "cat_plots":     return plots_kb()
+    if data == "cat_bases":     return bases_kb()
+    if data == "cat_trainer":   return trainer_kb()
+    return back_kb()
+
+
+def section_text_for(data: str) -> str:
+    if data == "cat_numbers":   return NUMBERS_TEXT
+    if data == "cat_equations": return EQUATIONS_TEXT
+    if data == "cat_plots":     return PLOTS_TEXT
+    if data == "cat_bases":     return BASES_TEXT
+    if data == "cat_trainer":   return TRAINER_TEXT
+    return MENU_TEXT
+
+
+@dp.callback_query(F.data.startswith("cat_"))
+async def cb_section(callback: CallbackQuery):
+    """Открывает раздел — редактирует сообщение на месте."""
+    data = callback.data
+    text = section_text_for(data)
+    kb = section_kb_for(data)
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "back_main")
+async def cb_back(callback: CallbackQuery):
+    """Возврат в главное меню."""
+    name = callback.from_user.first_name or "друг"
+    try:
+        await callback.message.edit_text(
+            greeting(name),
+            parse_mode="HTML",
+            reply_markup=main_menu_kb(),
+        )
+    except Exception:
+        await callback.message.answer(
+            greeting(name),
+            parse_mode="HTML",
+            reply_markup=main_menu_kb(),
+        )
+    await callback.answer()
+
+
 @dp.callback_query(F.data.startswith("help_"))
 async def cb_help(callback: CallbackQuery):
-    mapping = {
-        "help_calc":   "🧮 <b>Калькулятор</b>\n\n<code>/calc 2+2*2</code>\n<code>/calc sqrt(16) + sin(0)</code>\n<code>/calc 2**10</code>",
-        "help_prime":  "🔢 <b>Простое число</b>\n\n<code>/prime 17</code>",
-        "help_fact":   "❗ <b>Факториал</b>\n\n<code>/fact 5</code> → 120",
-        "help_fib":    "🌀 <b>Фибоначчи</b>\n\n<code>/fib 10</code> → 55",
-        "help_gcd":    "🔗 <b>НОД / НОК</b>\n\n<code>/gcd 12 18</code>",
-        "help_quad":   "📐 <b>Квадратное</b>\n\n<code>/quad 1 -5 6</code>",
-        "help_pow":    "⚡ <b>Степень</b>\n\n<code>/pow 2 10</code> → 1024",
-        "help_sqrt":   "√ <b>Корень</b>\n\n<code>/sqrt 144</code> → 12",
-        "help_rand":   "🎲 <b>Случайное</b>\n\n<code>/rand 1 100</code>",
-        "help_plot":   "📊 <b>График</b>\n\n<code>/plot x^2 -5 5</code>\n<code>/plot sin(x) -6.28 6.28</code>",
-        "help_system": "📏 <b>Система ур.</b>\n\n<code>/system x+y=5; x-y=1</code>\nРазделяй через <b>;</b>",
-        "help_base":   "🌍 <b>Системы счисления</b>\n\n<code>/base 255 16</code> → FF\n<code>/base ff 10</code> → 255",
-        "help_trainer":"🧠 <b>Тренажёр</b>\n\n<code>/trainer</code> — начать\nОтвечай числом. <code>/stop</code> — выход",
-        "help_score":  "🏆 <b>Мой счёт</b>\n\n<code>/score</code>",
-    }
-    await callback.message.answer(mapping.get(callback.data, "❓"), parse_mode="HTML")
+    """Показывает подсказку по команде."""
+    text = HELP_MESSAGES.get(callback.data, "❓")
+    await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
 
