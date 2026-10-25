@@ -12,8 +12,10 @@ from aiohttp import web
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PORT = int(os.getenv("PORT", 8080))
-GROUP_ID = -1004371804499
-CHANNEL_ID = "@RssTransfeer"
+
+# ⚠️ ОБНОВЛЕННЫЕ ID
+GROUP_ID = -5437265461
+CHANNEL_ID = "@transfermarket44" 
 MODERATORS = "@Zyro0o0, @meelviks"
 
 # --- РАБОЧИЕ ЧАСЫ ---
