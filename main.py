@@ -11,10 +11,11 @@ from aiogram.enums import ChatType
 from aiohttp import web
 
 # ⛔️ ВЫКЛЮЧАТЕЛЬ БОТА (True = включен, False = выключен)
-BOT_ENABLED = True 
+BOT_ENABLED = False 
 
 # ⚠️ Токен берется из настроек Render (Environment Variables)
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TOKEN = os.getenv("9106982984:AAHzz4TzKtLRJuZ-Y99PNumPO2KDFAj_Trs
+")
 PORT = int(os.getenv("PORT", 8080))
 
 # ⚠️ ВАЖНО: Сюда нужен ЧИСЛОВОЙ ID новой группы! Ссылка не подойдет.
