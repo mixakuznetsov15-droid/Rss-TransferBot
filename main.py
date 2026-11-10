@@ -17,8 +17,12 @@ BOT_ENABLED = True
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 PORT = int(os.getenv("PORT", 8080))
 
-GROUP_ID = -5437265461
-CHANNEL_ID = "@transfermarket" 
+# ⚠️ ВАЖНО: Сюда нужен ЧИСЛОВОЙ ID новой группы! Ссылка не подойдет.
+# Если бот не отправляет в группу, значит ID неверный или бот не админ.
+GROUP_ID = -5437265461 
+
+# ✅ Твой новый канал
+CHANNEL_ID = "@FCSTRA" 
 MODERATORS = "@Zyro0o0" 
 
 WORK_START = 7
@@ -150,9 +154,9 @@ async def send_application(user: types.User, text: str, include_contact: bool = 
     contact = get_author_contact(user)
     
     if include_contact:
-        full_text = f"{text}\n\n📝 <b>Писать:</b> {contact}\n\n📩 <b>Модераторы:</b> {MODERATORS}"
+        full_text = f"{text}\n\n📝 <b>Писать:</b> {contact}\n\n📩 <b>Админы:</b> {MODERATORS}"
     else:
-        full_text = f"{text}\n\n📩 <b>Модераторы:</b> {MODERATORS}"
+        full_text = f"{text}\n\n📩 <b>Админы:</b> {MODERATORS}"
     
     mod_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Принять", callback_data=f"mod_accept_{user.id}"),
@@ -213,9 +217,10 @@ async def cb_accept(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     
     back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="cancel_to_main")]])
-    await call.message.edit_text("✅ <b>Заявка отправлена модераторам.</b>\n\nОжидай ответа.", parse_mode="HTML", reply_markup=back_kb)
+    # Измененный текст без ников админов
+    await call.message.edit_text("✅ <b>Заявка отправлена админам.</b>\n\nОжидайте ответа.", parse_mode="HTML", reply_markup=back_kb)
 
-# --- СМЕНА ПОЗИЦИИ (Твой новый дизайн) ---
+# --- СМЕНА ПОЗИЦИИ ---
 @dp.callback_query(F.data == "change_pos")
 async def cb_change_pos(call: types.CallbackQuery, state: FSMContext):
     await state.set_state(ChangePosState.old_pos)
@@ -378,7 +383,8 @@ async def process_tour_time(message: types.Message, state: FSMContext):
 async def process_tour_stadium(message: types.Message, state: FSMContext):
     await state.update_data(stadium=message.text)
     await state.set_state(FindTourState.vip)
-    await message.answer("<b>VIP наше или ваше?</b>", parse_mode="HTML")
+    # Измененный текст VIP
+    await message.answer("<b>VIP (да / нет):</b>", parse_mode="HTML")
 
 @dp.message(FindTourState.vip)
 async def process_tour_vip(message: types.Message, state: FSMContext):
@@ -422,7 +428,7 @@ async def mod_accept(callback: types.CallbackQuery):
         clean_text = original_text.split("\n\n📝 Писать:")[0]
         channel_post = f"{clean_text}\n\n📝 <b>Писать:</b> {contact}"
     else:
-        clean_text = original_text.split("\n\n📩 Модераторы:")[0]
+        clean_text = original_text.split("\n\n📩 Админы:")[0]
         channel_post = clean_text
     
     await callback.message.edit_reply_markup(reply_markup=None)
@@ -449,7 +455,7 @@ async def mod_decline(callback: types.CallbackQuery, state: FSMContext):
     if "📝 Писать:" in original_text:
         clean_text = original_text.split("\n\n📝 Писать:")[0]
     else:
-        clean_text = original_text.split("\n\n📩 Модераторы:")[0]
+        clean_text = original_text.split("\n\n📩 Админы:")[0]
     
     await callback.message.edit_reply_markup(reply_markup=None)
     
@@ -472,7 +478,7 @@ async def process_decline_reason(message: types.Message, state: FSMContext):
     try:
         await bot.send_message(
             chat_id=author_id,
-            text=f"❌ <b>Ваша заявка отклонена.</b>\n\n<b>Заявка:</b>\n{clean_text}\n\n<b>Причина отказа:</b> {reason}\n\n<b>Модератор:</b> {mod_display}\n\nЕсли вы не согласны — свяжитесь с модераторами: {MODERATORS}",
+            text=f"❌ <b>Ваша заявка отклонена.</b>\n\n<b>Заявка:</b>\n{clean_text}\n\n<b>Причина отказа:</b> {reason}\n\n<b>Модератор:</b> {mod_display}\n\nЕсли вы не согласны — свяжитесь с админами: {MODERATORS}",
             parse_mode="HTML"
         )
         await message.reply("✅ Причина отказа отправлена автору заявки.")
