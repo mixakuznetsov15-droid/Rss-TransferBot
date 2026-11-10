@@ -11,18 +11,16 @@ from aiogram.enums import ChatType
 from aiohttp import web
 
 # ⛔️ ВЫКЛЮЧАТЕЛЬ БОТА (True = включен, False = выключен)
-BOT_ENABLED = False 
+BOT_ENABLED = True 
 
-# ⚠️ Токен берется из настроек Render (Environment Variables)
-TOKEN = os.getenv("9106982984:AAHzz4TzKtLRJuZ-Y99PNumPO2KDFAj_Trs
-")
+# ⚠️ Токен жестко прописан в коде по твоей просьбе
+TOKEN = "9106982984:AAHzz4TzKtLRJuZ-Y99PNumPO2KDFAj_Trs"
 PORT = int(os.getenv("PORT", 8080))
 
-# ⚠️ ВАЖНО: Сюда нужен ЧИСЛОВОЙ ID новой группы! Ссылка не подойдет.
-# Если бот не отправляет в группу, значит ID неверный или бот не админ.
-GROUP_ID = -5437265461 
+# ✅ Обновленный ID группы
+GROUP_ID = -1004320349114 
 
-# ✅ Твой новый канал
+# ✅ Твой канал
 CHANNEL_ID = "@FCSTRA" 
 MODERATORS = "@Zyro0o0" 
 
@@ -218,7 +216,6 @@ async def cb_accept(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     
     back_kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Вернуться в меню", callback_data="cancel_to_main")]])
-    # Измененный текст без ников админов
     await call.message.edit_text("✅ <b>Заявка отправлена админам.</b>\n\nОжидайте ответа.", parse_mode="HTML", reply_markup=back_kb)
 
 # --- СМЕНА ПОЗИЦИИ ---
@@ -384,7 +381,6 @@ async def process_tour_time(message: types.Message, state: FSMContext):
 async def process_tour_stadium(message: types.Message, state: FSMContext):
     await state.update_data(stadium=message.text)
     await state.set_state(FindTourState.vip)
-    # Измененный текст VIP
     await message.answer("<b>VIP (да / нет):</b>", parse_mode="HTML")
 
 @dp.message(FindTourState.vip)
